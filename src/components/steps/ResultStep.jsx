@@ -31,8 +31,6 @@ export default function ResultStep() {
 
   const pf = result.passFailEnabled
   const pass = result.isPass
-  const setOverride = (patch) =>
-    dispatch({ type: 'SET_OVERRIDE', override: { ...override, ...patch } })
 
   // Hero theme: neutral for simple grading; green/red when pass/fail is on.
   const theme = !pf
@@ -161,44 +159,6 @@ export default function ResultStep() {
             </li>
           ))}
         </ol>
-      </Card>
-
-      {/* Teacher override */}
-      <Card title="Teacher override" subtitle="Manually set the final grade. This supersedes all computed rules and is recorded with your reason.">
-        <div className="grid gap-3 sm:grid-cols-[220px_1fr_auto] sm:items-end">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-500">Override grade</label>
-            <select
-              value={override.bandId ?? ''}
-              onChange={(e) => setOverride({ bandId: e.target.value || null })}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="">— No override (use computed) —</option>
-              {bands.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-500">Reason</label>
-            <input
-              value={override.reason}
-              onChange={(e) => setOverride({ reason: e.target.value })}
-              placeholder="e.g. Late penalty waived due to extension"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
-          {override.bandId && (
-            <Button variant="danger" onClick={() => setOverride({ bandId: null, reason: '' })}>
-              Clear
-            </Button>
-          )}
-        </div>
-        {override.bandId && !override.reason.trim() && (
-          <p className="mt-2 text-xs text-amber-600">Tip: add a reason — overrides should always be justified.</p>
-        )}
       </Card>
     </div>
   )

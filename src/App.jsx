@@ -19,6 +19,10 @@ export default function App() {
 
   const go = (n) => dispatch({ type: 'SET_STEP', step: Math.max(0, Math.min(3, n)) })
 
+  // A teacher override (set on the evaluation step) must carry a reason before
+  // the result can be viewed.
+  const overrideInvalid = !!state.override.bandId && !state.override.reason.trim()
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-slate-200 bg-white">
@@ -58,7 +62,7 @@ export default function App() {
             ← Back
           </Button>
           {step < 3 ? (
-            <Button onClick={() => go(step + 1)}>
+            <Button onClick={() => go(step + 1)} disabled={step === 2 && overrideInvalid}>
               {step === 2 ? 'See result' : 'Continue'} →
             </Button>
           ) : (

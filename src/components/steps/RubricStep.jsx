@@ -18,6 +18,50 @@ export default function RubricStep() {
     updateLevel(key, { points: mode === 'range' ? { min: r.min, max: r.max } : r.max })
   }
 
+  // --- Performance levels (columns) are fully dynamic --------------------------
+  // Adding a column gives every criterion a blank descriptor cell; removing one
+  // prunes those cells, fixes the pass-level rule, and drops any scores that used
+  // it; reordering changes rank (leftmost = best), which the engine reads by index.
+  const addLevel = () => {
+    const newKey = uid('lvl')
+    setRubric({
+      ...rubric,
+      levels: [...rubric.levels, { key: newKey, label: 'New level', points: 0 }],
+      criteria: rubric.criteria.map((c) => ({ ...c, cells: { ...c.cells, [newKey]: '' } })),
+    })
+  }
+
+  const removeLevel = (key) => {
+    if (rubric.levels.length <= 1) return
+    const nextLevels = rubric.levels.filter((l) => l.key !== key)
+    setRubric({
+      ...rubric,
+      levels: nextLevels,
+      criteria: rubric.criteria.map((c) => {
+        const { [key]: _drop, ...rest } = c.cells
+        return { ...c, cells: rest }
+      }),
+    })
+    // The pass-level rule may point at the removed column — fall back to the best.
+    if (rules.passLevelKey === key) {
+      dispatch({ type: 'SET_RULES', rules: { ...rules, passLevelKey: nextLevels[0].key } })
+    }
+    // Drop any learner scores that referenced the removed column.
+    const prunedEntries = Object.entries(state.evaluation).filter(([, v]) => v.levelKey !== key)
+    if (prunedEntries.length !== Object.keys(state.evaluation).length) {
+      dispatch({ type: 'SET_EVALUATION', evaluation: Object.fromEntries(prunedEntries) })
+    }
+  }
+
+  const moveLevel = (key, dir) => {
+    const i = rubric.levels.findIndex((l) => l.key === key)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= rubric.levels.length) return
+    const next = [...rubric.levels]
+    ;[next[i], next[j]] = [next[j], next[i]]
+    setRubric({ ...rubric, levels: next })
+  }
+
   const updateCriterion = (id, patch) =>
     setRubric({ ...rubric, criteria: rubric.criteria.map((c) => (c.id === id ? { ...c, ...patch } : c)) })
 
@@ -50,11 +94,47 @@ export default function RubricStep() {
                 <th className="sticky left-0 z-10 w-48 min-w-48 rounded-tl-lg bg-slate-50 p-3 text-left align-bottom">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Criteria</span>
                 </th>
-                {rubric.levels.map((lvl) => {
+                {rubric.levels.map((lvl, idx) => {
                   const isRange = typeof lvl.points !== 'number'
                   const r = pointsRange(lvl)
+                  const onlyOne = rubric.levels.length === 1
                   return (
                     <th key={lvl.key} className="min-w-56 border-l border-slate-100 bg-slate-50 p-3 text-left align-top">
+                      {/* Column controls: move left/right, remove */}
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                          Level {idx + 1}
+                        </span>
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => moveLevel(lvl.key, -1)}
+                            disabled={idx === 0}
+                            title="Move left (higher rank)"
+                            className="rounded px-1 py-0.5 text-xs text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:hover:bg-transparent"
+                          >
+                            ◀
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveLevel(lvl.key, 1)}
+                            disabled={idx === rubric.levels.length - 1}
+                            title="Move right (lower rank)"
+                            className="rounded px-1 py-0.5 text-xs text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:hover:bg-transparent"
+                          >
+                            ▶
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeLevel(lvl.key)}
+                            disabled={onlyOne}
+                            title={onlyOne ? 'A rubric needs at least one level' : 'Remove level'}
+                            className="rounded px-1 py-0.5 text-xs text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-red-400"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
                       <input
                         value={lvl.label}
                         onChange={(e) => updateLevel(lvl.key, { label: e.target.value })}
@@ -145,9 +225,12 @@ export default function RubricStep() {
           </table>
         </div>
 
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap gap-2">
           <Button variant="subtle" onClick={addCriterion}>
             + Add criterion
+          </Button>
+          <Button variant="subtle" onClick={addLevel}>
+            + Add level (column)
           </Button>
         </div>
       </Card>

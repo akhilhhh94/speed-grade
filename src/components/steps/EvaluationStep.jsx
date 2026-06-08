@@ -27,6 +27,9 @@ export default function EvaluationStep() {
   const setPoints = (critId, levelKey, points) =>
     dispatch({ type: 'SET_EVAL_CRITERION', criterionId: critId, value: { levelKey, points } })
 
+  const setOverride = (patch) =>
+    dispatch({ type: 'SET_OVERRIDE', override: { ...override, ...patch } })
+
   // Live running totals across ALL criteria (unscored count as 0 so the bar grows).
   const evaluatedCount = criteria.filter((c) => evaluation[c.id]).length
   const totalMax = criteria.reduce((s, c) => s + topMax * (Number(c.weight) || 0), 0)
@@ -37,6 +40,8 @@ export default function EvaluationStep() {
   const runningPct = totalMax > 0 ? Math.round((runningEarned / totalMax) * 1000) / 10 : 0
 
   const complete = evaluatedCount === criteria.length
+  // A teacher override must always carry a justification.
+  const overrideInvalid = !!override.bandId && !override.reason.trim()
   const result = complete ? computeResult({ bands, rubric, rules, evaluation, override, passFailEnabled }) : null
 
   return (
@@ -77,7 +82,10 @@ export default function EvaluationStep() {
                   <span className="text-xs text-slate-400">Provisional grade</span>
                 )}
               </div>
-              <Button disabled={!complete} onClick={() => dispatch({ type: 'SET_STEP', step: 3 })}>
+              <Button
+                disabled={!complete || overrideInvalid}
+                onClick={() => dispatch({ type: 'SET_STEP', step: 3 })}
+              >
                 See result →
               </Button>
             </div>
@@ -165,6 +173,52 @@ export default function EvaluationStep() {
             placeholder="e.g. Strong, well-structured argument. Tighten your use of evidence in the third paragraph and double-check your citations."
             className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm leading-relaxed text-slate-700"
           />
+        </Card>
+
+        {/* Teacher override */}
+        <Card title="Teacher override" subtitle="Manually set the final grade. This supersedes all computed rules and is recorded with your reason.">
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Override grade</label>
+              <select
+                value={override.bandId ?? ''}
+                onChange={(e) => setOverride({ bandId: e.target.value || null })}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              >
+                <option value="">— No override (use computed) —</option>
+                {bands.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {override.bandId && (
+              <Button variant="danger" onClick={() => setOverride({ bandId: null, reason: '' })}>
+                Clear
+              </Button>
+            )}
+          </div>
+          {override.bandId && (
+            <div className="mt-3">
+              <label className="mb-1 block text-xs font-medium text-slate-500">
+                Reason <span className="text-red-500">*</span>
+              </label>
+              <input
+                value={override.reason}
+                onChange={(e) => setOverride({ reason: e.target.value })}
+                placeholder="e.g. Late penalty waived due to extension"
+                className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                  overrideInvalid ? 'border-red-300 bg-red-50' : 'border-slate-200'
+                }`}
+              />
+              {overrideInvalid && (
+                <p className="mt-2 text-xs text-red-600">
+                  A reason is required when you override the grade.
+                </p>
+              )}
+            </div>
+          )}
         </Card>
 
         {/* Collapsible full calculation (hidden by default) */}

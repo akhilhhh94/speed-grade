@@ -113,6 +113,34 @@ describe('computeResult', () => {
     expect(r.gate.triggered).toBe(false)
   })
 
+  it('works with an arbitrary number of performance levels (not hard-coded to four)', () => {
+    const levels3 = [
+      { key: 'ex', label: 'Excellent', points: 10 },
+      { key: 'ok', label: 'OK', points: 5 },
+      { key: 'bad', label: 'Bad', points: 0 },
+    ]
+    const rubric3 = {
+      name: 'T3',
+      levels: levels3,
+      criteria: [
+        { id: 'c1', name: 'C1', weight: 1, cells: {} },
+        { id: 'c2', name: 'C2', weight: 1, cells: {} },
+      ],
+    }
+    // 10 + 5 = 15 of 20 = 75% -> A band
+    const r = computeResult({
+      bands,
+      rubric: rubric3,
+      rules: {},
+      evaluation: { c1: { levelKey: 'ex', points: 10 }, c2: { levelKey: 'ok', points: 5 } },
+      override: {},
+      passFailEnabled: false,
+    })
+    expect(r.complete).toBe(true)
+    expect(r.rawPercent).toBe(75)
+    expect(r.finalBand.id).toBe('A')
+  })
+
   it('override supersedes everything', () => {
     const r = run(
       { c1: { levelKey: 'ni', points: 1 }, c2: { levelKey: 'ni', points: 1 } },

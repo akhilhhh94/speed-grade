@@ -32,6 +32,8 @@ function reducer(state, action) {
         ...state,
         evaluation: { ...state.evaluation, [action.criterionId]: action.value },
       }
+    case 'SET_EVALUATION':
+      return { ...state, evaluation: action.evaluation }
     case 'RESET_EVAL':
       return { ...state, evaluation: {}, feedback: '', override: { bandId: null, reason: '' } }
     case 'SET_FEEDBACK':
