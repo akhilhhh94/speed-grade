@@ -1,26 +1,16 @@
-import { useStore } from '../state/store.jsx'
-
-const STEPS = [
-  { label: 'Grade Setup', hint: 'Bands & pass/fail' },
-  { label: 'Rubric & Rules', hint: 'Criteria + pass/fail' },
-  { label: 'Evaluate', hint: 'Score submission' },
-  { label: 'Result', hint: 'Final grade' },
-]
-
-export default function Stepper() {
-  const { state, dispatch } = useStore()
-  const current = state.step
-
+// Generic horizontal step rail for the Create-Assignment wizard. Generalized
+// from the original Stepper: takes the step list + current index as props.
+export default function WizardStepper({ steps, current, onStepClick }) {
   return (
     <nav className="flex items-center">
-      {STEPS.map((s, i) => {
+      {steps.map((s, i) => {
         const done = i < current
         const active = i === current
         return (
           <div key={s.label} className="flex flex-1 items-center last:flex-none">
             <button
               type="button"
-              onClick={() => dispatch({ type: 'SET_STEP', step: i })}
+              onClick={() => onStepClick?.(i)}
               className="group flex items-center gap-3 text-left"
             >
               <span
@@ -34,18 +24,14 @@ export default function Stepper() {
               >
                 {done ? '✓' : i + 1}
               </span>
-              <span className="hidden sm:block">
-                <span
-                  className={`block text-sm font-semibold ${active ? 'text-indigo-700' : done ? 'text-slate-700' : 'text-slate-400'}`}
-                >
+              <span className="hidden md:block">
+                <span className={`block text-sm font-semibold ${active ? 'text-indigo-700' : done ? 'text-slate-700' : 'text-slate-400'}`}>
                   {s.label}
                 </span>
-                <span className="block text-xs text-slate-400">{s.hint}</span>
+                {s.hint && <span className="block text-xs text-slate-400">{s.hint}</span>}
               </span>
             </button>
-            {i < STEPS.length - 1 && (
-              <span className={`mx-3 h-px flex-1 ${done ? 'bg-indigo-300' : 'bg-slate-200'}`} />
-            )}
+            {i < steps.length - 1 && <span className={`mx-3 h-px flex-1 ${done ? 'bg-indigo-300' : 'bg-slate-200'}`} />}
           </div>
         )
       })}

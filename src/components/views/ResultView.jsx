@@ -1,4 +1,3 @@
-import { useStore } from '../../state/store.jsx'
 import { computeResult } from '../../lib/calc.js'
 import { Card, BandPill, Button } from '../ui.jsx'
 
@@ -10,9 +9,10 @@ const STEP_STYLES = {
 }
 const STEP_ICON = { info: 'ⓘ', pass: '✓', fail: '✕', override: '✎' }
 
-export default function ResultStep() {
-  const { state, dispatch } = useStore()
-  const { rubric, bands, rules, evaluation, feedback, override, passFailEnabled } = state
+// Controlled result screen. Computes from the resolved config + evaluation, then
+// renders the same transparent breakdown as the original wizard.
+export default function ResultView({ config, evaluation, feedback, override, onBack }) {
+  const { bands, rubric, rules, passFailEnabled } = config
   const result = computeResult({ bands, rubric, rules, evaluation, override, passFailEnabled })
 
   if (!result.complete) {
@@ -21,9 +21,11 @@ export default function ResultStep() {
         <div className="py-10 text-center">
           <p className="text-lg font-semibold text-slate-700">Evaluation not finished</p>
           <p className="mt-1 text-sm text-slate-500">Score every criterion to see the final grade.</p>
-          <Button className="mt-4" onClick={() => dispatch({ type: 'SET_STEP', step: 2 })}>
-            ← Back to evaluation
-          </Button>
+          {onBack && (
+            <Button className="mt-4" onClick={onBack}>
+              ← Back to evaluation
+            </Button>
+          )}
         </div>
       </Card>
     )
@@ -32,7 +34,6 @@ export default function ResultStep() {
   const pf = result.passFailEnabled
   const pass = result.isPass
 
-  // Hero theme: neutral for simple grading; green/red when pass/fail is on.
   const theme = !pf
     ? { box: 'bg-indigo-50 ring-indigo-200', icon: 'bg-indigo-500', title: 'text-indigo-900', text: 'text-indigo-700' }
     : pass
@@ -66,9 +67,7 @@ export default function ResultStep() {
               <BandPill band={result.finalBand} className="text-sm" />
             </div>
             <div className="mt-1 text-2xl font-bold text-slate-900">{result.rawPercent}%</div>
-            {result.override.active && (
-              <div className="mt-1 text-xs font-medium text-indigo-600">manually overridden</div>
-            )}
+            {result.override.active && <div className="mt-1 text-xs font-medium text-indigo-600">manually overridden</div>}
           </div>
         </div>
 
@@ -85,17 +84,13 @@ export default function ResultStep() {
       </div>
 
       {/* Teacher feedback */}
-      {feedback.trim() && (
+      {feedback?.trim() && (
         <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
           <div className="mb-2 flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-100 text-sm text-indigo-700">
-              💬
-            </span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-100 text-sm text-indigo-700">💬</span>
             <h3 className="font-semibold text-slate-900">Teacher feedback</h3>
           </div>
-          <p className="whitespace-pre-wrap border-l-2 border-indigo-200 pl-3 text-sm leading-relaxed text-slate-600">
-            {feedback}
-          </p>
+          <p className="whitespace-pre-wrap border-l-2 border-indigo-200 pl-3 text-sm leading-relaxed text-slate-600">{feedback}</p>
         </div>
       )}
 
@@ -160,6 +155,14 @@ export default function ResultStep() {
           ))}
         </ol>
       </Card>
+
+      {onBack && (
+        <div className="flex justify-start">
+          <Button variant="ghost" onClick={onBack}>
+            ← Back to evaluation
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

@@ -94,3 +94,68 @@ export function Button({ children, variant = 'primary', className = '', ...props
     </button>
   )
 }
+
+// --- Form & layout primitives ----------------------------------------------
+
+const BADGE_TONES = {
+  slate: 'bg-slate-100 text-slate-600 ring-slate-200',
+  indigo: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
+  emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  amber: 'bg-amber-50 text-amber-700 ring-amber-200',
+  red: 'bg-red-50 text-red-700 ring-red-200',
+}
+
+export function Badge({ children, tone = 'slate', className = '' }) {
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${BADGE_TONES[tone] ?? BADGE_TONES.slate} ${className}`}>
+      {children}
+    </span>
+  )
+}
+
+export function Field({ label, hint, required, children, className = '' }) {
+  return (
+    <label className={`block ${className}`}>
+      {label && (
+        <span className="mb-1 block text-xs font-medium text-slate-500">
+          {label}
+          {required && <span className="text-red-500"> *</span>}
+        </span>
+      )}
+      {children}
+      {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}
+    </label>
+  )
+}
+
+const inputBase =
+  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100'
+
+export function TextInput({ className = '', ...props }) {
+  return <input className={`${inputBase} ${className}`} {...props} />
+}
+
+export function Textarea({ className = '', ...props }) {
+  return <textarea className={`${inputBase} resize-y leading-relaxed ${className}`} {...props} />
+}
+
+export function Select({ className = '', children, ...props }) {
+  return (
+    <select className={`${inputBase} ${className}`} {...props}>
+      {children}
+    </select>
+  )
+}
+
+export function EmptyState({ icon = '—', title, subtitle, action }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+      <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-xl text-slate-400">
+        {icon}
+      </div>
+      <p className="text-sm font-semibold text-slate-700">{title}</p>
+      {subtitle && <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">{subtitle}</p>}
+      {action && <div className="mt-4">{action}</div>}
+    </div>
+  )
+}

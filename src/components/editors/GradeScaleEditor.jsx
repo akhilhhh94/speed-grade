@@ -1,12 +1,12 @@
-import { useStore } from '../../state/store.jsx'
 import { uid } from '../../data/sampleData.js'
-import { Card, Button, Toggle, BAND_COLORS, colorOf } from '../ui.jsx'
+import { Card, Button, Toggle, Field, TextInput, BAND_COLORS, colorOf } from '../ui.jsx'
 
 const COLOR_KEYS = Object.keys(BAND_COLORS)
 
-// Surface overlaps / gaps / out-of-range bands so the teacher gets immediate
-// feedback while defining the grading scale.
-function validate(bands, passFailEnabled) {
+// Surface overlaps / gaps / out-of-range bands so the author gets immediate
+// feedback while defining the grading scale. (Extracted verbatim from the
+// original GradeBandsStep.)
+export function validateBands(bands, passFailEnabled) {
   const warnings = []
   const sorted = [...bands].sort((a, b) => a.min - b.min)
   sorted.forEach((b) => {
@@ -27,13 +27,12 @@ function validate(bands, passFailEnabled) {
   return warnings
 }
 
-export default function GradeBandsStep() {
-  const { state, dispatch } = useStore()
-  const { passFailEnabled } = state
-  const bands = state.bands
-  const warnings = validate(bands, passFailEnabled)
+// Controlled editor for a single grade scale: { name, passFailEnabled, bands }.
+export default function GradeScaleEditor({ value, onChange }) {
+  const { name, passFailEnabled, bands } = value
+  const warnings = validateBands(bands, passFailEnabled)
 
-  const setBands = (next) => dispatch({ type: 'SET_BANDS', bands: next })
+  const setBands = (next) => onChange({ ...value, bands: next })
   const update = (id, patch) => setBands(bands.map((b) => (b.id === id ? { ...b, ...patch } : b)))
   const remove = (id) => setBands(bands.filter((b) => b.id !== id))
   const add = () =>
@@ -46,19 +45,24 @@ export default function GradeBandsStep() {
 
   return (
     <div className="space-y-6">
-      {/* Top-level Pass/Fail grading toggle */}
-      <Card title="Pass / Fail grading">
-        <div className="flex items-center justify-between gap-4">
-          <p className="text-sm text-slate-600">
-            {passFailEnabled
-              ? 'On: the result is Pass or Fail (from the bands marked below) and you can add grade rules in the next step.'
-              : 'Off: simple grading — the score just maps to a letter grade. No pass/fail, no grade rules.'}
-          </p>
-          <Toggle
-            checked={passFailEnabled}
-            onChange={(v) => dispatch({ type: 'SET_PASSFAIL_ENABLED', enabled: v })}
-          />
+      <Card title="Scale details">
+        <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+          <Field label="Scale name">
+            <TextInput value={name} onChange={(e) => onChange({ ...value, name: e.target.value })} />
+          </Field>
+          <div className="flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-2.5">
+            <Toggle
+              checked={passFailEnabled}
+              onChange={(v) => onChange({ ...value, passFailEnabled: v })}
+              label="Pass / Fail grading"
+            />
+          </div>
         </div>
+        <p className="mt-3 text-sm text-slate-500">
+          {passFailEnabled
+            ? 'On: the result is Pass or Fail (from the bands marked below); assignments using this scale can add grade rules.'
+            : 'Off: simple grading — the score maps to a band label only. No pass/fail, no grade rules.'}
+        </p>
       </Card>
 
       <Card
@@ -100,7 +104,6 @@ export default function GradeBandsStep() {
                 key={b.id}
                 className={`grid grid-cols-1 items-center gap-3 rounded-xl border border-slate-200 p-3 ${rowCols}`}
               >
-                {/* color */}
                 <select
                   value={b.color}
                   onChange={(e) => update(b.id, { color: e.target.value })}
@@ -113,7 +116,6 @@ export default function GradeBandsStep() {
                     </option>
                   ))}
                 </select>
-                {/* label */}
                 <div className="flex items-center gap-2">
                   <span className={`h-3 w-3 shrink-0 rounded-full ${c.dot}`} />
                   <input
@@ -122,7 +124,6 @@ export default function GradeBandsStep() {
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium"
                   />
                 </div>
-                {/* range */}
                 <div className="flex items-center gap-1.5 text-sm text-slate-500">
                   <input
                     type="number"
@@ -139,11 +140,9 @@ export default function GradeBandsStep() {
                   />
                   <span>%</span>
                 </div>
-                {/* pass — only meaningful when Pass/Fail grading is on */}
                 {passFailEnabled && (
                   <Toggle checked={b.isPass} onChange={(v) => update(b.id, { isPass: v })} label="Pass" />
                 )}
-                {/* delete */}
                 <Button variant="danger" onClick={() => remove(b.id)} className="px-3 py-2">
                   ✕
                 </Button>

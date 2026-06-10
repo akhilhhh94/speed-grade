@@ -1,41 +1,70 @@
-# Rubric Grade Calculator (Proof of Concept)
+# Lumen LMS — Rubric-based Assessment Prototype
 
-A learner's assignment-submission evaluation screen driven by rubrics, built with
-**React + Vite + Tailwind CSS v4**. The emphasis is on the *concept and solution* —
-a transparent grading engine — as much as the UI.
+A professional, single-page **LMS UI/UX prototype** built with **React + Vite +
+Tailwind CSS v4**. It frames the original transparent rubric grading engine inside
+a full LMS experience: global configuration libraries, a guided assignment-create
+flow, a learner-facing assignment page, a dummy submission, and the evaluate →
+result screens.
+
+> **Prototype scope:** everything is in-memory. There is **no backend and no
+> storage** (no local/session storage) — state resets on reload and re-seeds from
+> `src/data/sampleData.js`. Navigation is in-memory too (no router dependency).
 
 ## Run
 
 ```bash
 npm install
 npm run dev      # open the printed localhost URL
-npm test         # run the calculation-engine unit tests
+npm test         # engine + resolver unit tests
+npm run build    # production build
 ```
 
-## The 4-step flow
+## The experience
 
-1. **Grade bands** — define any number of bands dynamically: a percentage range, a
-   fully custom label, a pass/fail flag and a colour. Live validation flags overlaps,
-   gaps and uncovered ranges; a coverage bar visualises the whole scale.
-2. **Rubric & rules** — an editable criteria × performance-level table (seeded with the
-   sample essay rubric). Each level's points can be a **single value or a range**, each
-   criterion has a weight. Two configurable rules shape the grade:
-   - **Minimum-criterion gate** — if *any / all / at least N* criteria fall below a level,
-     force the grade down to a fail band (resubmission).
-   - **Pass floor** — if chosen key criteria all reach a level, guarantee a minimum grade.
-3. **Evaluate** — pick a performance level per criterion (with a slider to fine-tune
-   points when the level is a range). A sticky live summary shows the running score and
-   provisional grade.
-4. **Result** — congrats (green) or resubmission (red) with explicit fail reasons, a full
-   weighted-score breakdown, an ordered plain-language explanation of every rule applied,
-   and a teacher override (grade + reason).
+A left **sidebar** frames the app; a top bar carries the breadcrumb and an
+**Instructor ↔ Learner** role switch.
 
-## Where the logic lives
+**Instructor**
+- **Configuration libraries** (global, reusable):
+  - **Grade Scales** — named band-sets with a pass/fail mode.
+  - **Rubrics** — criteria × performance-level grids (plain-text descriptors), a
+    **rich-text Learning outcomes** field (markdown — tables, bullets, live
+    preview), and **grading rules** (pass level, minimum-to-pass gate, grade
+    guarantee). The guarantee's minimum band is chosen per assignment.
+- **Create Assignment** — a guided 6-step wizard: Details & content → Grade
+  scale → Rubric → Outcomes → Deadline & rules → Review & publish. Choosing a
+  rubric seeds its outcomes and rule choices, which you then customize.
+- **Assignment overview** → **Evaluate** the dummy submission → **Result** with the
+  full transparent grade breakdown.
 
-`src/lib/calc.js` is a pure, fully-explained calculation engine — the single source of
-truth. It returns the per-criterion breakdown, the computed/floored/gated/overridden band,
-and an ordered `steps[]` list that the result screen renders verbatim, so every number on
-screen is explained. Order of precedence: **computed % → floor (lift) → gate (force fail)
-→ teacher override**.
+**Learner**
+- A professional assignment page: rich instructions, the read-only rubric, the
+  rich-text learning outcomes, due date/points, and **Submit**.
 
-State is in-memory (`src/state/store.jsx`) and re-seeds the sample rubric on reload.
+## Architecture
+
+```
+src/
+  lib/
+    calc.js          The pure grading engine — UNCHANGED from the original PoC.
+    calc.test.js     Engine tests — UNCHANGED.
+    resolve.js       Resolves an assignment's references → the exact engine input.
+  state/store.jsx    In-memory store: role, route, libraries, assignments, draft, session.
+  data/sampleData.js Seed libraries + assignments (calc-relevant shapes identical to the PoC).
+  components/
+    Markdown.jsx     react-markdown + remark-gfm wrapper (rich content, incl. tables).
+    Router.jsx       In-memory (route, role) → page switch, with learner guards.
+    layout/          AppShell, Sidebar, TopBar (role switch), Icons.
+    editors/         Controlled GradeScaleEditor, RubricEditor, RulesConfig.
+    views/           EvaluationView, ResultView, RubricView.
+  pages/             One component per route (instructor + learner).
+```
+
+### The grading logic never changes
+
+`src/lib/calc.js` is the single source of truth and is preserved **byte-for-byte**.
+Every grade still flows through `computeResult({ bands, rubric, rules, evaluation,
+override, passFailEnabled })`. The new `resolve.js` is the only bridge: it turns an
+assignment's library references into that exact input object (and repairs any
+dangling rule references). `src/lib/resolve.test.js` asserts the resolved path
+produces a result identical to calling the engine directly.

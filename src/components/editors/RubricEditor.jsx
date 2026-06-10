@@ -1,13 +1,22 @@
-import { useStore } from '../../state/store.jsx'
+import { useState } from 'react'
 import { uid } from '../../data/sampleData.js'
 import { pointsRange } from '../../lib/calc.js'
-import { Card, Button, Toggle, SegmentedControl } from '../ui.jsx'
+import { Card, Button, Field, TextInput, Textarea } from '../ui.jsx'
+import Markdown from '../Markdown.jsx'
+import RulesConfig from './RulesConfig.jsx'
 
-export default function RubricStep() {
-  const { state, dispatch } = useStore()
-  const { rubric, rules, bands, passFailEnabled } = state
-
-  const setRubric = (next) => dispatch({ type: 'SET_RUBRIC', rubric: next })
+// Controlled editor for a single rubric:
+//   { id, name, levels, criteria, outcomes, rules }
+// Descriptor cells are plain text. Learning outcomes are a rich-text field
+// (markdown — tables/bullets). Grading rules are band-less here; the guarantee's
+// minimum band is chosen on the assignment.
+//
+// NOTE: removeLevel is PURE — it only removes the level and prunes its cells.
+// Rule fixups happen downstream (resolve.sanitizeRules / the evaluation view).
+export default function RubricEditor({ value, onChange }) {
+  const rubric = value
+  const [outcomesPreview, setOutcomesPreview] = useState(false)
+  const setRubric = (next) => onChange(next)
 
   const updateLevel = (key, patch) =>
     setRubric({ ...rubric, levels: rubric.levels.map((l) => (l.key === key ? { ...l, ...patch } : l)) })
@@ -18,10 +27,6 @@ export default function RubricStep() {
     updateLevel(key, { points: mode === 'range' ? { min: r.min, max: r.max } : r.max })
   }
 
-  // --- Performance levels (columns) are fully dynamic --------------------------
-  // Adding a column gives every criterion a blank descriptor cell; removing one
-  // prunes those cells, fixes the pass-level rule, and drops any scores that used
-  // it; reordering changes rank (leftmost = best), which the engine reads by index.
   const addLevel = () => {
     const newKey = uid('lvl')
     setRubric({
@@ -33,24 +38,14 @@ export default function RubricStep() {
 
   const removeLevel = (key) => {
     if (rubric.levels.length <= 1) return
-    const nextLevels = rubric.levels.filter((l) => l.key !== key)
     setRubric({
       ...rubric,
-      levels: nextLevels,
+      levels: rubric.levels.filter((l) => l.key !== key),
       criteria: rubric.criteria.map((c) => {
         const { [key]: _drop, ...rest } = c.cells
         return { ...c, cells: rest }
       }),
     })
-    // The pass-level rule may point at the removed column — fall back to the best.
-    if (rules.passLevelKey === key) {
-      dispatch({ type: 'SET_RULES', rules: { ...rules, passLevelKey: nextLevels[0].key } })
-    }
-    // Drop any learner scores that referenced the removed column.
-    const prunedEntries = Object.entries(state.evaluation).filter(([, v]) => v.levelKey !== key)
-    if (prunedEntries.length !== Object.keys(state.evaluation).length) {
-      dispatch({ type: 'SET_EVALUATION', evaluation: Object.fromEntries(prunedEntries) })
-    }
   }
 
   const moveLevel = (key, dir) => {
@@ -83,9 +78,15 @@ export default function RubricStep() {
 
   return (
     <div className="space-y-6">
+      <Card title="Rubric details">
+        <Field label="Rubric name">
+          <TextInput value={rubric.name} onChange={(e) => setRubric({ ...rubric, name: e.target.value })} />
+        </Field>
+      </Card>
+
       <Card
-        title={rubric.name}
-        subtitle="Rows are evaluation criteria; columns are performance levels. A level's points can be a single value or a range — when it's a range, the teacher fine-tunes the exact points with a slider while evaluating."
+        title="Criteria & performance levels"
+        subtitle="Rows are criteria; columns are levels. A level's points can be a single value or a range. Descriptors are short, plain-text statements."
       >
         <div className="overflow-x-auto">
           <table className="w-full border-separate border-spacing-0 text-sm">
@@ -100,7 +101,6 @@ export default function RubricStep() {
                   const onlyOne = rubric.levels.length === 1
                   return (
                     <th key={lvl.key} className="min-w-56 border-l border-slate-100 bg-slate-50 p-3 text-left align-top">
-                      {/* Column controls: move left/right, remove */}
                       <div className="mb-1.5 flex items-center justify-between">
                         <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
                           Level {idx + 1}
@@ -205,6 +205,7 @@ export default function RubricStep() {
                         value={c.cells[lvl.key] ?? ''}
                         onChange={(e) => updateCell(c.id, lvl.key, e.target.value)}
                         rows={4}
+                        placeholder="Short descriptor…"
                         className="w-full resize-y rounded-md border border-slate-200 px-2 py-1.5 text-xs leading-relaxed text-slate-600"
                       />
                     </td>
@@ -235,124 +236,39 @@ export default function RubricStep() {
         </div>
       </Card>
 
-      <RulesConfig rules={rules} bands={bands} rubric={rubric} passFailEnabled={passFailEnabled} dispatch={dispatch} />
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Grade rules — shown only when Pass/Fail grading is enabled (Step 1).
-// One shared definition of "a passing criterion" drives the gate & guarantee.
-// ---------------------------------------------------------------------------
-function RulesConfig({ rules, bands, rubric, passFailEnabled, dispatch }) {
-  const set = (next) => dispatch({ type: 'SET_RULES', rules: next })
-  const setGate = (patch) => set({ ...rules, gate: { ...rules.gate, ...patch } })
-  const setGuarantee = (patch) => set({ ...rules, guarantee: { ...rules.guarantee, ...patch } })
-
-  const levelOptions = rubric.levels.map((l) => ({ value: l.key, label: l.label }))
-  const bandOptions = bands.map((b) => ({ value: b.id, label: b.label }))
-
-  const Select = ({ value, onChange, options }) => (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700"
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  )
-
-  // When Pass/Fail grading is off there are no grade rules — just a pointer.
-  if (!passFailEnabled) {
-    return (
-      <Card title="Grade rules">
-        <p className="text-sm text-slate-500">
-          Enable <span className="font-medium text-slate-700">Pass/Fail grading</span> in Step 1 to configure
-          grade rules (minimum to pass, grade guarantee).
-        </p>
+      {/* Learning outcomes — rich text */}
+      <Card title="Learning outcomes" subtitle="What this rubric assesses. Supports rich text — headings, bullets and tables.">
+        <div className="mb-1 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => setOutcomesPreview((p) => !p)}
+            className="text-xs font-medium text-indigo-600 hover:underline"
+          >
+            {outcomesPreview ? 'Edit' : 'Preview'}
+          </button>
+        </div>
+        {outcomesPreview ? (
+          <div className="min-h-[10rem] rounded-lg border border-slate-200 bg-white px-4 py-3">
+            <Markdown>{rubric.outcomes || '_Nothing to preview yet._'}</Markdown>
+          </div>
+        ) : (
+          <Textarea
+            value={rubric.outcomes ?? ''}
+            rows={8}
+            placeholder="Describe the learning outcomes in markdown — bullets and tables are supported."
+            onChange={(e) => setRubric({ ...rubric, outcomes: e.target.value })}
+          />
+        )}
       </Card>
-    )
-  }
 
-  const g = rules.guarantee
-
-  return (
-    <Card title="Grade rules (optional)" subtitle="Shape the pass/fail outcome beyond the raw score. Each rule is optional.">
-      <div className="space-y-3">
-        {/* Shared definition of a passing criterion */}
-        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-indigo-50/60 px-4 py-3 text-sm text-slate-600 ring-1 ring-indigo-100">
-          <span className="font-semibold text-slate-800">A criterion passes</span>
-          <span>when it reaches at least</span>
-          <Select value={rules.passLevelKey} onChange={(v) => set({ ...rules, passLevelKey: v })} options={levelOptions} />
-          <span className="text-slate-400">— used by both rules below.</span>
-        </div>
-
-        {/* Gate — minimum to pass */}
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
-          <Toggle checked={rules.gate.enabled} onChange={(v) => setGate({ enabled: v })} />
-          <span className="font-semibold text-slate-800">Minimum to pass:</span>
-          <span>every criterion must pass</span>
-          <span className="text-slate-400">— otherwise the submission needs resubmission.</span>
-        </div>
-
-        {/* Guarantee — criterion-targeted minimum grade */}
-        <div className="rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
-          <div className="mb-3 flex items-center gap-2">
-            <Toggle checked={g.enabled} onChange={(v) => setGuarantee({ enabled: v })} />
-            <span className="font-semibold text-slate-800">Grade guarantee:</span>
-            <span className="text-slate-400">if key criteria pass, lock in a minimum grade.</span>
-          </div>
-
-          <div className="mb-3">
-            <span className="mb-1.5 block text-xs font-medium text-slate-500">Key criteria</span>
-            <div className="flex flex-wrap gap-2">
-              {rubric.criteria.map((c) => {
-                const checked = g.criterionIds.includes(c.id)
-                return (
-                  <label
-                    key={c.id}
-                    className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
-                      checked ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) =>
-                        setGuarantee({
-                          criterionIds: e.target.checked
-                            ? [...g.criterionIds, c.id]
-                            : g.criterionIds.filter((x) => x !== c.id),
-                        })
-                      }
-                    />
-                    {c.name}
-                  </label>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <span>If</span>
-            <SegmentedControl
-              value={g.mode}
-              onChange={(v) => setGuarantee({ mode: v })}
-              options={[
-                { value: 'any', label: 'any' },
-                { value: 'all', label: 'all' },
-              ]}
-            />
-            <span>of the selected criteria pass → guarantee at least</span>
-            <Select value={g.minBandId} onChange={(v) => setGuarantee({ minBandId: v })} options={bandOptions} />
-            <span className="text-slate-400">(a higher score still wins).</span>
-          </div>
-        </div>
-      </div>
-    </Card>
+      {/* Grading rules — band-less; applied when used with a Pass/Fail scale */}
+      <RulesConfig
+        value={rubric.rules}
+        rubric={rubric}
+        passFailEnabled
+        showBand={false}
+        onChange={(next) => setRubric({ ...rubric, rules: next })}
+      />
+    </div>
   )
 }

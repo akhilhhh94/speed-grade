@@ -1,36 +1,35 @@
-import { useStore } from '../../state/store.jsx'
-import {
-  computeResult,
-  pointsRange,
-  levelByKey,
-  topLevelMaxPoints,
-} from '../../lib/calc.js'
+import { computeResult, pointsRange, levelByKey, topLevelMaxPoints } from '../../lib/calc.js'
 import { Card, BandPill, Button } from '../ui.jsx'
 import CalculationDetails from '../CalculationDetails.jsx'
 import SubmissionPanel from '../SubmissionPanel.jsx'
 
-export default function EvaluationStep() {
-  const { state, dispatch } = useStore()
-  const { rubric, bands, rules, evaluation, feedback, override, passFailEnabled } = state
+// Controlled evaluation screen. `config` is the resolved grading configuration
+// ({ bands, rubric, rules, passFailEnabled }); the engine is called with exactly
+// that plus the evaluation/override — identical to the original wizard step.
+export default function EvaluationView({
+  config,
+  submission,
+  evaluation,
+  feedback,
+  override,
+  onCriterion,
+  onFeedback,
+  onOverride,
+  onSeeResult,
+  onReset,
+}) {
+  const { bands, rubric, rules, passFailEnabled } = config
   const { levels, criteria } = rubric
   const topMax = topLevelMaxPoints(levels)
 
   const selectLevel = (critId, levelKey) => {
     const r = pointsRange(levelByKey(levels, levelKey))
-    dispatch({
-      type: 'SET_EVAL_CRITERION',
-      criterionId: critId,
-      value: { levelKey, points: r.max }, // default to the level's full value; adjustable if a range
-    })
+    onCriterion(critId, { levelKey, points: r.max }) // default to the level's full value; adjustable if a range
   }
+  const setPoints = (critId, levelKey, points) => onCriterion(critId, { levelKey, points })
+  const setOverride = (patch) => onOverride({ ...override, ...patch })
 
-  const setPoints = (critId, levelKey, points) =>
-    dispatch({ type: 'SET_EVAL_CRITERION', criterionId: critId, value: { levelKey, points } })
-
-  const setOverride = (patch) =>
-    dispatch({ type: 'SET_OVERRIDE', override: { ...override, ...patch } })
-
-  // Live running totals across ALL criteria (unscored count as 0 so the bar grows).
+  // Live running totals across ALL criteria (unscored count as 0).
   const evaluatedCount = criteria.filter((c) => evaluation[c.id]).length
   const totalMax = criteria.reduce((s, c) => s + topMax * (Number(c.weight) || 0), 0)
   const runningEarned = criteria.reduce((s, c) => {
@@ -40,14 +39,13 @@ export default function EvaluationStep() {
   const runningPct = totalMax > 0 ? Math.round((runningEarned / totalMax) * 1000) / 10 : 0
 
   const complete = evaluatedCount === criteria.length
-  // A teacher override must always carry a justification.
   const overrideInvalid = !!override.bandId && !override.reason.trim()
   const result = complete ? computeResult({ bands, rubric, rules, evaluation, override, passFailEnabled }) : null
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
       {/* LEFT — student submission */}
-      <SubmissionPanel />
+      <SubmissionPanel submission={submission} />
 
       {/* RIGHT — evaluation */}
       <div className="space-y-4">
@@ -76,16 +74,9 @@ export default function EvaluationStep() {
                 </div>
               </div>
               <div className="text-center">
-                {complete ? (
-                  <BandPill band={result.finalBand} />
-                ) : (
-                  <span className="text-xs text-slate-400">Provisional grade</span>
-                )}
+                {complete ? <BandPill band={result.finalBand} /> : <span className="text-xs text-slate-400">Provisional grade</span>}
               </div>
-              <Button
-                disabled={!complete || overrideInvalid}
-                onClick={() => dispatch({ type: 'SET_STEP', step: 3 })}
-              >
+              <Button disabled={!complete || overrideInvalid} onClick={onSeeResult}>
                 See result →
               </Button>
             </div>
@@ -127,8 +118,8 @@ export default function EvaluationStep() {
               </select>
 
               {level && (
-                <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-600">
-                  {c.cells[level.key]}
+                <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap text-slate-600">
+                  {c.cells[level.key] ?? ''}
                 </p>
               )}
 
@@ -168,7 +159,7 @@ export default function EvaluationStep() {
         <Card title="Feedback for the student" subtitle="Optional. Shown to the learner on the result screen.">
           <textarea
             value={feedback}
-            onChange={(e) => dispatch({ type: 'SET_FEEDBACK', feedback: e.target.value })}
+            onChange={(e) => onFeedback(e.target.value)}
             rows={4}
             placeholder="e.g. Strong, well-structured argument. Tighten your use of evidence in the third paragraph and double-check your citations."
             className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm leading-relaxed text-slate-700"
@@ -212,22 +203,18 @@ export default function EvaluationStep() {
                   overrideInvalid ? 'border-red-300 bg-red-50' : 'border-slate-200'
                 }`}
               />
-              {overrideInvalid && (
-                <p className="mt-2 text-xs text-red-600">
-                  A reason is required when you override the grade.
-                </p>
-              )}
+              {overrideInvalid && <p className="mt-2 text-xs text-red-600">A reason is required when you override the grade.</p>}
             </div>
           )}
         </Card>
 
-        {/* Collapsible full calculation (hidden by default) */}
+        {/* Collapsible full calculation */}
         <CalculationDetails result={result} />
 
         {evaluatedCount > 0 && (
           <button
             type="button"
-            onClick={() => dispatch({ type: 'RESET_EVAL' })}
+            onClick={onReset}
             className="w-full text-center text-xs text-slate-400 hover:text-slate-600 hover:underline"
           >
             Clear evaluation

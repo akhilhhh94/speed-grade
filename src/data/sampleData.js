@@ -1,18 +1,22 @@
 // ---------------------------------------------------------------------------
-// Seed data for the proof-of-concept.
+// Seed data for the LMS prototype.
 //
-// Everything here is fully editable from the UI at runtime; this is just the
-// starting point so a teacher can jump straight to evaluating a submission and
-// immediately see the concept working end-to-end.
+// Everything here is editable from the UI at runtime; this is just the starting
+// point so the app demos end-to-end immediately. State is in-memory only and
+// re-seeds from this file on every reload (no persistence).
+//
+// IMPORTANT: the shapes the grading engine reads (bands, rubric.levels,
+// rubric.criteria, rules) are kept identical to the original PoC so the engine
+// in lib/calc.js stays untouched and reproduces its exact behavior.
+//
+// Rubric descriptor cells are plain text. Rich content (markdown + tables) lives
+// in each rubric's `outcomes` field and in an assignment's `content`/`outcomes`.
 // ---------------------------------------------------------------------------
 
 let _id = 0
 export const uid = (prefix = 'id') => `${prefix}_${++_id}`
 
-// --- Grade bands (Step 1) --------------------------------------------------
-// A band owns a percentage range [min, max], a fully custom label, and a
-// pass/fail flag. `color` is just a visual swatch token. Selection at runtime
-// uses `min` only (highest matching band wins) so contiguous bands never clash.
+// === Grade bands ===========================================================
 export const defaultBands = [
   { id: 'band_a_plus', label: 'A+ · Excellent', min: 90, max: 100, isPass: true, color: 'emerald' },
   { id: 'band_a', label: 'A · Proficient', min: 75, max: 90, isPass: true, color: 'green' },
@@ -21,10 +25,13 @@ export const defaultBands = [
   { id: 'band_f', label: 'F · Needs Resubmission', min: 0, max: 50, isPass: false, color: 'red' },
 ]
 
-// --- Rubric (Step 2) -------------------------------------------------------
-// Performance levels are the shared columns. Each level carries `points` which
-// is either a single number OR a { min, max } range. When a level is a range,
-// the teacher fine-tunes the exact points with a slider during evaluation.
+export const simpleBands = [
+  { id: 'sb_a', label: 'A', min: 75, max: 100, isPass: true, color: 'emerald' },
+  { id: 'sb_b', label: 'B', min: 50, max: 75, isPass: true, color: 'lime' },
+  { id: 'sb_c', label: 'C', min: 0, max: 50, isPass: true, color: 'amber' },
+]
+
+// === Rubric ================================================================
 export const defaultLevels = [
   { key: 'excellent', label: 'Excellent (A)', points: 4 },
   { key: 'proficient', label: 'Proficient (B)', points: 3 },
@@ -32,8 +39,7 @@ export const defaultLevels = [
   { key: 'needs_improvement', label: 'Needs Improvement (F)', points: 1 },
 ]
 
-// Criteria are the rows. `cells` holds the descriptor text per level. `weight`
-// scales a criterion's contribution to the final score.
+// Criteria are the rows. `cells` holds plain-text descriptors per level.
 export const defaultRubric = {
   name: 'Argumentative Essay Rubric',
   levels: defaultLevels,
@@ -85,20 +91,68 @@ export const defaultRubric = {
   ],
 }
 
-// --- Grade rules (Step 2) --------------------------------------------------
-// Only used when Pass/Fail grading is enabled (top-level toggle). A single
-// shared definition of "a passing criterion" drives two optional rules:
-//
-// passLevelKey – a criterion PASSES when it reaches at least this level.
-// gate         – every criterion must pass; if any fails, the submission is
-//                forced to the lowest fail band (resubmission).
-// guarantee    – if ANY/ALL (per `mode`) of the selected criteria PASS, guarantee
-//                a minimum grade of `minBandId` (a higher computed grade still wins).
+export const labRubric = {
+  name: 'Lab Report Rubric',
+  levels: [
+    { key: 'exemplary', label: 'Exemplary', points: 4 },
+    { key: 'competent', label: 'Competent', points: 3 },
+    { key: 'emerging', label: 'Emerging', points: 2 },
+    { key: 'incomplete', label: 'Incomplete', points: 1 },
+  ],
+  criteria: [
+    {
+      id: 'crit_hypothesis',
+      name: 'Hypothesis',
+      weight: 1,
+      cells: {
+        exemplary: 'A testable, precisely worded hypothesis with a clear rationale.',
+        competent: 'A testable hypothesis, though the rationale is thin.',
+        emerging: 'A vague or only partially testable hypothesis.',
+        incomplete: 'No identifiable hypothesis.',
+      },
+    },
+    {
+      id: 'crit_method',
+      name: 'Method',
+      weight: 2,
+      cells: {
+        exemplary: 'Procedure is reproducible, with variables identified and controls clearly justified. Steps are numbered and easy to follow.',
+        competent: 'Procedure is mostly reproducible; minor gaps in controls.',
+        emerging: 'Procedure has gaps that hinder reproducibility.',
+        incomplete: 'Procedure is missing or unusable.',
+      },
+    },
+    {
+      id: 'crit_data',
+      name: 'Data & Analysis',
+      weight: 2,
+      cells: {
+        exemplary: 'Data is well organized with appropriate units, tables and correct analysis.',
+        competent: 'Data is mostly organized; analysis has small errors.',
+        emerging: 'Data is disorganized or analysis is superficial.',
+        incomplete: 'Little to no usable data or analysis.',
+      },
+    },
+    {
+      id: 'crit_conclusion',
+      name: 'Conclusion',
+      weight: 1,
+      cells: {
+        exemplary: 'Conclusion is supported by the data and revisits the hypothesis.',
+        competent: 'Conclusion is reasonable but only loosely tied to the data.',
+        emerging: 'Conclusion is asserted without support.',
+        incomplete: 'No conclusion provided.',
+      },
+    },
+  ],
+}
+
+// === Grade rules ===========================================================
+// Used when Pass/Fail grading is enabled. This is the assignment-level shape
+// (includes the guarantee's minimum band). Rubrics carry a band-less version.
 export const defaultRules = {
   passLevelKey: 'developing', // a criterion passes at >= "Developing"
-  gate: {
-    enabled: true, // every criterion must pass, otherwise resubmission
-  },
+  gate: { enabled: true }, // every criterion must pass, otherwise resubmission
   guarantee: {
     enabled: true,
     criterionIds: ['crit_thesis'], // key criteria whose passing locks a minimum grade
@@ -107,7 +161,145 @@ export const defaultRules = {
   },
 }
 
-// --- Dummy student submission (shown on the evaluation page) ----------------
+// === Rubric outcomes (rich text) ===========================================
+const essayOutcomes = `## What this assesses
+
+By completing this assignment you will:
+
+- **Construct an argument** — state and sustain a clear, defensible thesis.
+- **Reason with evidence** — integrate credible sources to support each claim.
+- **Communicate clearly** — write with correct grammar, mechanics and academic tone.
+
+| Outcome | Demonstrated by |
+| --- | --- |
+| Critical thinking | A sustained, evidence-backed argument |
+| Academic integrity | Accurate citations in a consistent style |
+| Written communication | Clear, well-structured, error-free prose |`
+
+const labOutcomes = `## What this assesses
+
+- **Design an investigation** — frame a testable hypothesis with a clear rationale.
+- **Work methodically** — follow a reproducible procedure with justified controls.
+- **Analyze data** — organize results and draw a supported conclusion.
+
+| Skill | Evidence |
+| --- | --- |
+| Scientific inquiry | A testable hypothesis and a sound method |
+| Data analysis | Correctly analyzed, well-presented data |`
+
+// === Global libraries (seeded) =============================================
+export const defaultGradeScales = [
+  { id: 'gs_letter', name: 'Letter Grade (Pass/Fail)', passFailEnabled: true, bands: defaultBands },
+  { id: 'gs_simple', name: 'Percentage (Simple)', passFailEnabled: false, bands: simpleBands },
+]
+
+export const defaultRubrics = [
+  {
+    id: 'rub_essay',
+    name: defaultRubric.name,
+    levels: defaultRubric.levels,
+    criteria: defaultRubric.criteria,
+    outcomes: essayOutcomes,
+    // Band-less rules — the guarantee's minimum band is chosen on the assignment.
+    rules: {
+      passLevelKey: 'developing',
+      gate: { enabled: true },
+      guarantee: { enabled: true, criterionIds: ['crit_thesis'], mode: 'any' },
+    },
+  },
+  {
+    id: 'rub_lab',
+    name: labRubric.name,
+    levels: labRubric.levels,
+    criteria: labRubric.criteria,
+    outcomes: labOutcomes,
+    rules: {
+      passLevelKey: 'emerging',
+      gate: { enabled: true },
+      guarantee: { enabled: false, criterionIds: [], mode: 'any' },
+    },
+  },
+]
+
+// === Assignments (reference library items by id) ===========================
+const essayContent = `## Overview
+
+Write a **5-paragraph argumentative essay** taking a clear position on the prompt below. Your essay should make a defensible claim and support it with credible evidence.
+
+> **Prompt:** Should standardized testing determine academic success?
+
+## Requirements
+
+- 800–1,200 words
+- At least **three** credible sources, cited in APA or MLA
+- A clear thesis stated in the introduction
+- A counter-argument addressed before your conclusion
+
+## Submission checklist
+
+| Item | Required |
+| --- | --- |
+| Thesis statement | Yes |
+| 3+ cited sources | Yes |
+| Reference list | Yes |
+| Word count 800–1,200 | Yes |`
+
+const labContent = `## Lab Report — Reaction Rate & Temperature
+
+Investigate how temperature affects the rate of a chemical reaction and report your findings.
+
+## Sections to include
+
+1. **Hypothesis** — a testable prediction with rationale
+2. **Method** — reproducible procedure with controls
+3. **Data & Analysis** — tables, units, and analysis
+4. **Conclusion** — tied back to your hypothesis
+
+Submit a single PDF. Raw data tables may be included in an appendix.`
+
+export const defaultAssignments = [
+  {
+    id: 'asg_essay',
+    title: 'Argumentative Essay #1042',
+    content: essayContent,
+    gradeScaleId: 'gs_letter',
+    rubricId: 'rub_essay',
+    outcomes: essayOutcomes,
+    rules: defaultRules,
+    dueDate: '2026-06-24',
+    points: 100,
+    status: 'published',
+    submitted: false,
+  },
+  {
+    id: 'asg_lab',
+    title: 'Chemistry Lab Report',
+    content: labContent,
+    gradeScaleId: 'gs_simple',
+    rubricId: 'rub_lab',
+    outcomes: labOutcomes,
+    rules: null, // simple grading — rules unused; resolver fills a safe default
+    dueDate: '2026-06-30',
+    points: 60,
+    status: 'published',
+    submitted: false,
+  },
+  {
+    id: 'asg_draft',
+    title: 'Poetry Analysis (draft)',
+    content: '## Poetry Analysis\n\nAnalyze the imagery and tone of the assigned poem.',
+    gradeScaleId: 'gs_letter',
+    rubricId: 'rub_essay',
+    outcomes: essayOutcomes,
+    rules: defaultRules,
+    dueDate: '2026-07-10',
+    points: 100,
+    status: 'draft',
+    submitted: false,
+  },
+]
+
+// === Dummy student submissions =============================================
 export const sampleSubmission = {
   student: 'Jordan Avery',
   title: 'Should Standardized Testing Determine Academic Success?',
@@ -119,3 +311,23 @@ export const sampleSubmission = {
     'In conclusion, standardized testing should inform, not define, academic success. Treating a single number as the measure of a student’s potential is both statistically fragile and ethically questionable. A fairer model evaluates learners across multiple, authentic dimensions — exactly the kind of holistic judgment a thoughtful rubric is designed to support.',
   ],
 }
+
+const labSubmission = {
+  student: 'Riley Chen',
+  title: 'Effect of Temperature on Reaction Rate',
+  body: [
+    'Hypothesis: Increasing the temperature of the reactants will increase the reaction rate, because higher temperatures raise the average kinetic energy of the particles and therefore the frequency of effective collisions.',
+    'Method: Sodium thiosulfate and hydrochloric acid were combined at five temperatures (10, 20, 30, 40, 50 °C). The independent variable was temperature; the dependent variable was the time for the solution to obscure a marked cross. Concentration and volume were held constant as controls. Each temperature was repeated three times and averaged.',
+    'Data & Analysis: Reaction time fell from 64 s at 10 °C to 11 s at 50 °C. Plotting rate (1/time) against temperature produced a clear positive, roughly exponential trend, consistent with collision theory. Minor scatter at 30 °C is attributed to a delayed start of timing.',
+    'Conclusion: The data supports the hypothesis — reaction rate increased with temperature across the tested range. A useful extension would be to measure the rate at narrower intervals to estimate the activation energy.',
+  ],
+}
+
+const submissionsById = {
+  asg_essay: sampleSubmission,
+  asg_lab: labSubmission,
+  asg_draft: sampleSubmission,
+}
+
+// Return the dummy submission for an assignment (falls back to the essay).
+export const submissionFor = (assignmentId) => submissionsById[assignmentId] ?? sampleSubmission
