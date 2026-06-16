@@ -30,7 +30,7 @@ export default function RubricEditPage() {
         </button>
         <span className="text-xs text-slate-400">Changes are saved automatically</span>
       </div>
-      <RubricEditor value={rubric} onChange={onChange} />
+      <RubricEditor value={rubric} onChange={onChange} gradeScales={state.gradeScales} />
     </div>
   )
 }

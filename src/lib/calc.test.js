@@ -150,3 +150,159 @@ describe('computeResult', () => {
     expect(r.override.active).toBe(true)
   })
 })
+
+// --- Grade Profile mode ----------------------------------------------------
+// Bands tuned (like the seeded Vocational scale) so the weighted-average fallback
+// puts sub-Pass work in "Fail" when no rule matches.
+const vbands = [
+  { id: 'D', label: 'Distinction', min: 80, max: 100, isPass: true },
+  { id: 'M', label: 'Merit', min: 65, max: 80, isPass: true },
+  { id: 'P', label: 'Pass', min: 50, max: 65, isPass: true },
+  { id: 'X', label: 'Fail', min: 0, max: 50, isPass: false },
+]
+const vlevels = [
+  { key: 'd', label: 'Distinction', points: 4 },
+  { key: 'm', label: 'Merit', points: 3 },
+  { key: 'p', label: 'Pass', points: 2 },
+  { key: 'f', label: 'Fail', points: 1 },
+]
+const vrubric = {
+  name: 'V',
+  levels: vlevels,
+  criteria: Array.from({ length: 6 }, (_, i) => ({ id: `k${i + 1}`, name: `K${i + 1}`, weight: 1, cells: {} })),
+}
+
+// The user's real "overall assessment rules" (Distinction / Merit / Pass).
+// No `label`, no `fallback` — a rule's name is its target band; non-match → weighted band.
+const profileRules = {
+  mode: 'profile',
+  profile: {
+    overrides: [
+      {
+        id: 'od',
+        targetBandId: 'D',
+        conditions: [
+          { id: 'a', quantifier: 'atLeast', count: 4, matcher: 'reach', levelKey: 'd' },
+          { id: 'b', quantifier: 'atMost', count: 0, matcher: 'below', levelKey: 'm' },
+        ],
+      },
+      {
+        id: 'om',
+        targetBandId: 'M',
+        conditions: [
+          { id: 'c', quantifier: 'atLeast', count: 4, matcher: 'reach', levelKey: 'm' },
+          { id: 'e', quantifier: 'atMost', count: 0, matcher: 'below', levelKey: 'p' },
+        ],
+      },
+      {
+        id: 'op',
+        targetBandId: 'P',
+        conditions: [{ id: 'g', quantifier: 'atLeast', count: 6, matcher: 'reach', levelKey: 'p' }],
+      },
+    ],
+  },
+}
+
+const ptsOf = (key) => vlevels.find((l) => l.key === key).points
+const evalOf = (keys) => Object.fromEntries(keys.map((k, i) => [`k${i + 1}`, { levelKey: k, points: ptsOf(k) }]))
+const runV = (keys, { rules = profileRules, passFailEnabled = true, override = {} } = {}) =>
+  computeResult({ bands: vbands, rubric: vrubric, rules, evaluation: evalOf(keys), override, passFailEnabled })
+
+describe('computeResult — grade profile mode', () => {
+  it('awards Distinction when ≥4 reach Distinction and none below Merit', () => {
+    expect(runV(['d', 'd', 'd', 'd', 'd', 'd']).finalBand.id).toBe('D')
+    expect(runV(['d', 'd', 'd', 'd', 'm', 'm']).finalBand.id).toBe('D') // up to 2 at Merit
+  })
+
+  it('falls through to Merit when Distinction is missed', () => {
+    expect(runV(['d', 'd', 'd', 'm', 'm', 'm']).finalBand.id).toBe('M') // only 3 reach Distinction
+    expect(runV(['m', 'm', 'm', 'm', 'p', 'p']).finalBand.id).toBe('M') // ≥4 reach Merit, up to 2 at Pass
+  })
+
+  it('falls through to Pass when Merit is missed but all reach Pass', () => {
+    expect(runV(['m', 'm', 'm', 'p', 'p', 'p']).finalBand.id).toBe('P')
+    expect(runV(['p', 'p', 'p', 'p', 'p', 'p']).finalBand.id).toBe('P')
+  })
+
+  it('falls back to the weighted-average band (Fail) when no rule matches', () => {
+    const r = runV(['p', 'p', 'p', 'p', 'p', 'f']) // one criterion below Pass → 45.8% → Fail
+    expect(r.finalBand.id).toBe('X')
+    expect(r.isPass).toBe(false)
+    expect(r.profile.fallbackUsed).toBe(true)
+  })
+
+  it('records the matched rule and inert gate/guarantee', () => {
+    const r = runV(['d', 'd', 'd', 'd', 'd', 'd'])
+    expect(r.profile.active).toBe(true)
+    expect(r.gate.triggered).toBe(false)
+    expect(r.guarantee.triggered).toBe(false)
+    expect(r.steps.some((s) => s.kind === 'pass' && /Distinction/.test(s.title))).toBe(true)
+  })
+
+  it('an override with no conditions never matches (weighted band stands)', () => {
+    const rules = { mode: 'profile', profile: { overrides: [{ id: 'x', targetBandId: 'X', conditions: [] }] } }
+    // all Distinction → 100% → computed band D; the empty rule must NOT fire to X
+    expect(runV(['d', 'd', 'd', 'd', 'd', 'd'], { rules }).finalBand.id).toBe('D')
+  })
+
+  it('a condition asking for more criteria than exist never fires', () => {
+    const rules = {
+      mode: 'profile',
+      profile: {
+        overrides: [{ id: 'x', targetBandId: 'X', conditions: [{ id: 'a', quantifier: 'atLeast', count: 7, matcher: 'reach', levelKey: 'd' }] }],
+      },
+    }
+    // 6 criteria, needs 7 → never fires → weighted band D stands
+    expect(runV(['d', 'd', 'd', 'd', 'd', 'd'], { rules }).finalBand.id).toBe('D')
+  })
+
+  it('supports a negative top rule (any criterion below Pass → Fail)', () => {
+    const rules = {
+      mode: 'profile',
+      profile: {
+        overrides: [
+          { id: 'neg', targetBandId: 'X', conditions: [{ id: 'a', quantifier: 'atLeast', count: 1, matcher: 'below', levelKey: 'p' }] },
+          { id: 'op', targetBandId: 'P', conditions: [{ id: 'g', quantifier: 'atMost', count: 0, matcher: 'below', levelKey: 'p' }] },
+        ],
+      },
+    }
+    expect(runV(['d', 'd', 'd', 'd', 'd', 'f'], { rules }).finalBand.id).toBe('X')
+    expect(runV(['p', 'p', 'p', 'p', 'p', 'p'], { rules }).finalBand.id).toBe('P')
+  })
+
+  it('no rules → the weighted-average band is used', () => {
+    const rules = { mode: 'profile', profile: { overrides: [] } }
+    // all Merit → 18/24 = 75% → Merit band
+    expect(runV(['m', 'm', 'm', 'm', 'm', 'm'], { rules }).finalBand.id).toBe('M')
+  })
+
+  it('is ignored when pass/fail grading is off (simple grading)', () => {
+    const rules = {
+      mode: 'profile',
+      profile: {
+        overrides: [{ id: 'neg', targetBandId: 'X', conditions: [{ id: 'a', quantifier: 'atLeast', count: 1, matcher: 'below', levelKey: 'p' }] }],
+      },
+    }
+    // 5×Distinction + 1×Fail → 21/24 = 87.5% → D; profile not applied
+    const r = runV(['d', 'd', 'd', 'd', 'd', 'f'], { rules, passFailEnabled: false })
+    expect(r.finalBand.id).toBe('D')
+    expect(r.profile.active).toBe(false)
+  })
+
+  it('teacher override still supersedes the profile', () => {
+    const r = runV(['d', 'd', 'd', 'd', 'd', 'd'], { override: { bandId: 'X', reason: 'flagged' } })
+    expect(r.finalBand.id).toBe('X')
+    expect(r.override.active).toBe(true)
+  })
+
+  it('defends against a dangling target band (falls back to the computed band)', () => {
+    const rules = {
+      mode: 'profile',
+      profile: {
+        overrides: [{ id: 'x', targetBandId: 'GHOST', conditions: [{ id: 'a', quantifier: 'atLeast', count: 1, matcher: 'reach', levelKey: 'd' }] }],
+      },
+    }
+    // all Distinction → 100% → computed band D; rule matches but band is gone → D stands
+    expect(runV(['d', 'd', 'd', 'd', 'd', 'd'], { rules }).finalBand.id).toBe('D')
+  })
+})

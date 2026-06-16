@@ -51,6 +51,13 @@ export const newRubric = () => {
     outcomes: '',
     // Grade rules (applied when used with a Pass/Fail scale). No band reference —
     // the guarantee's minimum band is chosen on the assignment.
+    //
+    // Default is weighted-average mode (gate + guarantee). The rules object may
+    // instead carry `mode: 'profile'` plus a `profile`
+    // ({ overrides:[{ id, targetBandId, conditions:[{ id, quantifier, count,
+    // matcher, levelKey }] }] }) — see src/lib/calc.js. Profile mode is unlocked by
+    // selecting an (optional) grade scale on the rubric and is attached lazily by
+    // the rules editor; a non-match falls back to the weighted-average band.
     rules: {
       passLevelKey: levels[Math.min(1, levels.length - 1)].key,
       gate: { enabled: true },

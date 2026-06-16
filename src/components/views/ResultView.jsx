@@ -136,6 +136,9 @@ export default function ResultView({ config, evaluation, feedback, override, onB
           {result.totalEarned} ÷ {result.totalMax} × 100 ={' '}
           <span className="font-bold">{result.rawPercent}%</span> → computed band{' '}
           <span className="font-semibold">“{result.computedBand.label}”</span>
+          {result.profile?.active && (
+            <span className="text-indigo-500"> (the starting point before the grade-profile rules below).</span>
+          )}
         </div>
       </Card>
 

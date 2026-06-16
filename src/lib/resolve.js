@@ -11,6 +11,8 @@
 // removed). This replaces the cross-cutting fixups the old wizard did inline.
 // ===========================================================================
 
+import { bandsTopToBottom } from './calc.js'
+
 /** A sensible default rule set for a given rubric + grade scale. */
 export function defaultRulesFor(rubric, bands) {
   const levels = rubric?.levels ?? []
@@ -25,6 +27,28 @@ export function defaultRulesFor(rubric, bands) {
   }
 }
 
+/** An empty Grade Profile. A non-match always falls back to the weighted-average band. */
+export function defaultProfile() {
+  return { overrides: [] }
+}
+
+/**
+ * Bind a profile's rules to a given scale's bands. A target band that is valid
+ * on the scale is kept (same scale ⇒ rules carry over 1:1); an invalid/dangling
+ * one re-maps to the i-th band from the top, clamped (different scale ⇒ a sane
+ * starting point the instructor can adjust — the assignment's scale has priority).
+ */
+function bindProfile(profile, bands) {
+  const desc = bandsTopToBottom(bands)
+  const last = desc.length - 1
+  const bandIds = new Set(bands.map((b) => b.id))
+  const overrides = (profile?.overrides ?? []).map((o, i) => ({
+    ...o,
+    targetBandId: bandIds.has(o.targetBandId) ? o.targetBandId : desc[Math.min(i, last)]?.id ?? null,
+  }))
+  return { overrides }
+}
+
 /**
  * Seed an assignment's full rules from a rubric's (band-less) rules, defaulting
  * the guarantee's minimum band to the lowest passing band of the chosen scale.
@@ -33,7 +57,7 @@ export function defaultRulesFor(rubric, bands) {
 export function seedRules(rubricRules, bands) {
   const passBands = bands.filter((b) => b.isPass)
   const minBandId = (passBands[passBands.length - 1] ?? bands[0])?.id ?? null
-  return {
+  const weighted = {
     passLevelKey: rubricRules?.passLevelKey ?? null,
     gate: { enabled: !!rubricRules?.gate?.enabled },
     guarantee: {
@@ -43,6 +67,35 @@ export function seedRules(rubricRules, bands) {
       minBandId,
     },
   }
+  // Weighted rubrics seed exactly as before. Profile rubrics additionally bind
+  // their band-less override rules to the chosen scale's bands by position.
+  if (rubricRules?.mode !== 'profile' && !rubricRules?.profile) return weighted
+  return { mode: 'profile', ...weighted, profile: bindProfile(rubricRules.profile, bands) }
+}
+
+/** Coerce a profile into a valid shape: drop dead conditions, repair dangling target bands. */
+function sanitizeProfile(profile, bands, levelKeys, bandIds) {
+  const desc = bandsTopToBottom(bands)
+  const last = desc.length - 1
+  const QUANT = new Set(['atLeast', 'atMost', 'exactly'])
+  const MATCH = new Set(['reach', 'exactly', 'below'])
+
+  const overrides = (profile?.overrides ?? []).map((o, i) => ({
+    id: o.id,
+    // Valid target stays; a dangling one (e.g. after a scale swap) re-binds by position.
+    targetBandId: bandIds.has(o.targetBandId) ? o.targetBandId : desc[Math.min(i, last)]?.id ?? null,
+    conditions: (o.conditions ?? [])
+      .filter((c) => levelKeys.has(c.levelKey)) // drop conditions whose level was deleted
+      .map((c) => ({
+        id: c.id,
+        quantifier: QUANT.has(c.quantifier) ? c.quantifier : 'atLeast',
+        count: Math.max(0, Math.round(Number(c.count) || 0)),
+        matcher: MATCH.has(c.matcher) ? c.matcher : 'reach',
+        levelKey: c.levelKey,
+      })),
+  }))
+
+  return { overrides }
 }
 
 /** Coerce `rules` into a valid shape for the given rubric + bands. */
@@ -54,7 +107,9 @@ export function sanitizeRules(rules, rubric, bands) {
   const critIds = new Set((rubric?.criteria ?? []).map((c) => c.id))
   const bandIds = new Set(bands.map((b) => b.id))
 
-  return {
+  // Weighted fields are always sanitized; for a legacy (mode-less) rule set we
+  // return exactly this object, byte-for-byte identical to before.
+  const weighted = {
     passLevelKey: levelKeys.has(rules.passLevelKey) ? rules.passLevelKey : base.passLevelKey,
     gate: { enabled: !!rules.gate?.enabled },
     guarantee: {
@@ -64,6 +119,9 @@ export function sanitizeRules(rules, rubric, bands) {
       minBandId: bandIds.has(rules.guarantee?.minBandId) ? rules.guarantee.minBandId : base.guarantee.minBandId,
     },
   }
+
+  if (rules.mode !== 'profile' && !rules.profile) return weighted
+  return { mode: 'profile', ...weighted, profile: sanitizeProfile(rules.profile, bands, levelKeys, bandIds) }
 }
 
 /**

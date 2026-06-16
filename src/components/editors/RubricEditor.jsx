@@ -13,7 +13,7 @@ import RulesConfig from './RulesConfig.jsx'
 //
 // NOTE: removeLevel is PURE — it only removes the level and prunes its cells.
 // Rule fixups happen downstream (resolve.sanitizeRules / the evaluation view).
-export default function RubricEditor({ value, onChange }) {
+export default function RubricEditor({ value, onChange, gradeScales = [] }) {
   const rubric = value
   const [outcomesPreview, setOutcomesPreview] = useState(false)
   const setRubric = (next) => onChange(next)
@@ -261,12 +261,13 @@ export default function RubricEditor({ value, onChange }) {
         )}
       </Card>
 
-      {/* Grading rules — band-less; applied when used with a Pass/Fail scale */}
+      {/* Grading rules — an optional grade scale here unlocks Grade Profile rules */}
       <RulesConfig
         value={rubric.rules}
         rubric={rubric}
-        passFailEnabled
-        showBand={false}
+        gradeScales={gradeScales}
+        gradeScaleId={rubric.gradeScaleId ?? null}
+        onGradeScaleChange={(id) => setRubric({ ...rubric, gradeScaleId: id })}
         onChange={(next) => setRubric({ ...rubric, rules: next })}
       />
     </div>

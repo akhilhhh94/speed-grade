@@ -31,6 +31,10 @@ function SelectCard({ selected, onClick, children }) {
 
 function rulesSummary(passFailEnabled, rules, rubric, bands) {
   if (!passFailEnabled) return 'Simple grading — no pass/fail rules.'
+  if (rules.mode === 'profile') {
+    const n = rules.profile?.overrides?.length ?? 0
+    return `Grade profile · ${n} rule${n === 1 ? '' : 's'}`
+  }
   const passLabel = rubric?.levels.find((l) => l.key === rules.passLevelKey)?.label ?? '—'
   const parts = [`Pass at ≥ ${passLabel}`]
   if (rules.gate?.enabled) parts.push('every criterion must pass')

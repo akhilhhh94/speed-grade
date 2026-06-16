@@ -60,6 +60,91 @@ const round = (n, d = 1) => {
   return Math.round(n * f) / f
 }
 
+// --- Grade Profile helpers -------------------------------------------------
+// A "grade profile" decides the final grade from how many criteria reach each
+// level (rather than from the weighted percentage). Authors define N ordered
+// override rules; the first whose count-based conditions ALL hold wins. If none
+// match, the grade is simply the weighted-average band (no configurable
+// fallback). These helpers are pure and shared by the engine, the editor (for
+// the live preview) and the tests — one source of truth for the phrasing.
+
+/** Bands ordered best → worst (highest `min` first). */
+export function bandsTopToBottom(bands) {
+  return [...bands].sort((a, b) => b.min - a.min)
+}
+
+/** Does a single criterion (its level rank vs. the reference level) satisfy a matcher? */
+function criterionMatches(rank, refRank, matcher) {
+  if (matcher === 'exactly') return rank === refRank
+  if (matcher === 'below') return rank > refRank // strictly worse
+  return rank <= refRank // 'reach' — this level or better
+}
+
+/** Count criteria whose selected level matches `matcher` relative to `levelKey`. */
+export function countMatching(perCriterion, levels, matcher, levelKey) {
+  const refRank = levelRank(levels, levelKey)
+  return perCriterion.reduce((n, pc) => {
+    const rank = levelRank(levels, pc.levelKey)
+    return n + (rank >= 0 && criterionMatches(rank, refRank, matcher) ? 1 : 0)
+  }, 0)
+}
+
+/** Evaluate one condition. Returns the live count + whether it holds. */
+export function conditionHolds(perCriterion, levels, condition) {
+  const actual = countMatching(perCriterion, levels, condition.matcher, condition.levelKey)
+  const count = Number(condition.count) || 0
+  const ok =
+    condition.quantifier === 'atMost' ? actual <= count : condition.quantifier === 'exactly' ? actual === count : actual >= count
+  return { actual, ok }
+}
+
+/**
+ * Evaluate one override rule. Conditions are AND-ed. An override with NO
+ * conditions never matches (the catch-all is the fallback, not an empty rule).
+ */
+export function overrideMatches(perCriterion, levels, override) {
+  const conditions = (override.conditions ?? []).map((c) => ({ ...c, ...conditionHolds(perCriterion, levels, c) }))
+  const matched = conditions.length > 0 && conditions.every((c) => c.ok)
+  const firstUnmet = conditions.find((c) => !c.ok) ?? null
+  return { matched, conditions, firstUnmet }
+}
+
+/**
+ * Run the whole profile: the first matching override wins (its target band).
+ * If none match, the grade is simply the weighted-average band — there is no
+ * configurable fallback. Returns the chosen band plus a per-rule trace so the
+ * UI can explain the decision.
+ */
+export function evaluateProfile({ perCriterion, levels, bands, profile, computedBand }) {
+  const overrides = profile?.overrides ?? []
+  const evaluated = overrides.map((o) => ({ override: o, ...overrideMatches(perCriterion, levels, o) }))
+  const winnerIdx = evaluated.findIndex((e) => e.matched)
+
+  const finalBand = winnerIdx >= 0 ? bandById(bands, evaluated[winnerIdx].override.targetBandId) ?? computedBand : computedBand
+  return { active: true, finalBand, winnerIdx, fallbackUsed: winnerIdx < 0, evaluated }
+}
+
+/** Plain-English sentence for a condition — shared by the editor preview and the engine steps. */
+export function describeCondition(levels, c) {
+  const levelLabel = levelByKey(levels, c.levelKey)?.label ?? '(level)'
+  const matcherText = c.matcher === 'exactly' ? 'are exactly' : c.matcher === 'below' ? 'are below' : 'reach'
+  const count = Number(c.count) || 0
+  // "no criteria are below Merit" reads better than "at most 0 …".
+  if (count === 0 && (c.quantifier === 'atMost' || c.quantifier === 'exactly')) {
+    return `no criteria ${matcherText} ${levelLabel}`
+  }
+  const quantText = c.quantifier === 'atMost' ? 'at most' : c.quantifier === 'exactly' ? 'exactly' : 'at least'
+  return `${quantText} ${count} criteria ${matcherText} ${levelLabel}`
+}
+
+/** Plain-English sentence for a whole override rule (band label, or the rule's own label when band-less). */
+export function describeOverride(levels, bands, o) {
+  const target = bandById(bands, o.targetBandId)?.label ?? o.label ?? 'this grade'
+  const conds = o.conditions ?? []
+  if (conds.length === 0) return `Award “${target}” — no conditions yet, so this rule never applies.`
+  return `Award “${target}” if ${conds.map((c) => describeCondition(levels, c)).join(' and ')}.`
+}
+
 // --- Main engine -----------------------------------------------------------
 
 /**
@@ -126,6 +211,11 @@ export function computeResult({ bands, rubric, rules, evaluation, override, pass
   // the percentage maps to (simple grading — no pass/fail, no rules).
   const rulesOn = !!passFailEnabled
 
+  // Grade Profile mode swaps the weighted gate/guarantee rules for ordered,
+  // count-based override rules (see the helpers above). The weighted path stays
+  // exactly as it was for every other rule set.
+  const profileMode = rulesOn && rules.mode === 'profile'
+
   // Shared definition of a passing criterion: it reaches at least `passLevelKey`.
   const passRank = levelRank(levels, rules.passLevelKey)
   const passLevelLabel = levelByKey(levels, rules.passLevelKey)?.label
@@ -143,7 +233,7 @@ export function computeResult({ bands, rubric, rules, evaluation, override, pass
   // If ANY/ALL (per `mode`) of the selected criteria PASS, guarantee a minimum
   // band — a higher computed grade still wins.
   const guarantee = { triggered: false }
-  if (rulesOn && rules.guarantee?.enabled) {
+  if (rulesOn && !profileMode && rules.guarantee?.enabled) {
     const minBand = bandById(bands, rules.guarantee.minBandId)
     const mode = rules.guarantee.mode === 'all' ? 'all' : 'any'
     const selected = (rules.guarantee.criterionIds ?? [])
@@ -176,7 +266,7 @@ export function computeResult({ bands, rubric, rules, evaluation, override, pass
   // Every criterion must pass; if any fails, the submission fails. Applied AFTER
   // the guarantee so a failure always wins.
   const gate = { triggered: false }
-  if (rulesOn && rules.gate?.enabled) {
+  if (rulesOn && !profileMode && rules.gate?.enabled) {
     const failBand = lowestFailBand(bands)
     const failing = perCriterion.filter((pc) => !criterionPasses(pc))
 
@@ -199,6 +289,53 @@ export function computeResult({ bands, rubric, rules, evaluation, override, pass
         kind: 'info',
         title: 'Minimum to pass met',
         detail: `Every criterion passed (reached at least “${passLevelLabel}”).`,
+      })
+    }
+  }
+
+  // 4b. Grade Profile (count-based override rules) --------------------------
+  // First matching rule (top → bottom) sets the final grade; otherwise the
+  // fallback applies. Every decision is recorded so the student sees, in plain
+  // language, which rule won and why the higher ones (if any) did not.
+  let profileOut = { active: false }
+  if (profileMode) {
+    const pe = evaluateProfile({ perCriterion, levels, bands, profile: rules.profile, computedBand })
+    profileOut = pe
+    finalBand = pe.finalBand
+
+    // A rule's name is the grade it awards (the target band's label).
+    const gradeOf = (o) => bandById(bands, o.targetBandId)?.label ?? 'this grade'
+
+    // Explain each higher-priority rule that did not apply (only those above the
+    // winner — keeps the trace short and answers "why didn't I get the top grade?").
+    const upTo = pe.winnerIdx >= 0 ? pe.winnerIdx : pe.evaluated.length
+    for (let i = 0; i < upTo; i++) {
+      const e = pe.evaluated[i]
+      const grade = gradeOf(e.override)
+      const why =
+        e.conditions.length === 0
+          ? 'it has no conditions set'
+          : `“${describeCondition(levels, e.firstUnmet)}” was not met (${e.firstUnmet.actual} so far)`
+      steps.push({
+        kind: 'info',
+        title: `Grade profile: “${grade}” not applied`,
+        detail: `Would award “${grade}”, but ${why}.`,
+      })
+    }
+
+    if (pe.winnerIdx >= 0) {
+      const w = pe.evaluated[pe.winnerIdx]
+      const met = w.conditions.map((c) => `${describeCondition(levels, c)} (${c.actual})`).join('; ')
+      steps.push({
+        kind: 'pass',
+        title: `Grade profile: “${gradeOf(w.override)}” awarded`,
+        detail: `Conditions met — ${met}. Final grade set to “${pe.finalBand.label}”.`,
+      })
+    } else {
+      steps.push({
+        kind: 'info',
+        title: 'Grade profile: no rule matched',
+        detail: `No grade-profile rule matched, so the weighted-average band “${pe.finalBand.label}” stands.`,
       })
     }
   }
@@ -235,6 +372,7 @@ export function computeResult({ bands, rubric, rules, evaluation, override, pass
     computedBand,
     guarantee,
     gate,
+    profile: profileOut,
     override: overrideOut,
     supersededByGate,
     finalBand,
