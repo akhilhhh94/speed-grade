@@ -33,8 +33,9 @@ export const simpleBands = [
 
 // Vocational outcome grades (BTEC-style). The final grade is decided by a Grade
 // Profile (counts of criteria per level) rather than the percentage. The % ranges
-// only matter when no profile rule matches — then the weighted-average band is
-// used, and the ranges are tuned so sub-Pass work lands in "Fail".
+// only matter when no profile rule matches and the (configurable, default-on)
+// weighted-average fallback is used — the ranges are tuned so sub-Pass work lands
+// in "Fail".
 export const vocationalBands = [
   { id: 'band_dist', label: 'Distinction', min: 80, max: 100, isPass: true, color: 'emerald' },
   { id: 'band_merit', label: 'Merit', min: 65, max: 80, isPass: true, color: 'green' },
@@ -445,7 +446,6 @@ export const defaultAssignments = [
     gradeScaleId: 'gs_letter',
     rubricId: 'rub_essay',
     outcomes: essayOutcomes,
-    rules: defaultRules,
     dueDate: '2026-06-24',
     points: 100,
     status: 'published',
@@ -458,7 +458,6 @@ export const defaultAssignments = [
     gradeScaleId: 'gs_simple',
     rubricId: 'rub_lab',
     outcomes: labOutcomes,
-    rules: null, // simple grading — rules unused; resolver fills a safe default
     dueDate: '2026-06-30',
     points: 60,
     status: 'published',
@@ -471,7 +470,6 @@ export const defaultAssignments = [
     gradeScaleId: 'gs_vocational',
     rubricId: 'rub_strategic',
     outcomes: strategicOutcomes,
-    rules: strategicRules,
     dueDate: '2026-07-05',
     points: 100,
     status: 'published',
@@ -484,7 +482,6 @@ export const defaultAssignments = [
     gradeScaleId: 'gs_letter',
     rubricId: 'rub_essay',
     outcomes: essayOutcomes,
-    rules: defaultRules,
     dueDate: '2026-07-10',
     points: 100,
     status: 'draft',

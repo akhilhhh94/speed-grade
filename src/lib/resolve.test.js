@@ -42,12 +42,13 @@ describe('sanitizeRules', () => {
 })
 
 describe('resolveAssignmentConfig', () => {
-  it('resolves the essay assignment to the original engine inputs', () => {
+  it('resolves the essay assignment to the rubric-sourced engine inputs', () => {
     const cfg = resolveAssignmentConfig(state, asgEssay)
     expect(cfg.bands).toBe(defaultBands)
     expect(cfg.passFailEnabled).toBe(true)
     expect(cfg.rubric.criteria).toEqual(defaultRubric.criteria)
-    expect(cfg.rules).toEqual(defaultRules)
+    // Rules are the rubric's (single source of truth), bound to the scale bands.
+    expect(cfg.rules).toEqual(sanitizeRules(rubEssay.rules, rubEssay, defaultBands))
   })
 
   it('produces a result identical to calling the engine directly', () => {
@@ -59,7 +60,7 @@ describe('resolveAssignmentConfig', () => {
     const direct = computeResult({
       bands: defaultBands,
       rubric: defaultRubric,
-      rules: defaultRules,
+      rules: sanitizeRules(rubEssay.rules, rubEssay, defaultBands),
       passFailEnabled: true,
       evaluation,
       override: { bandId: null, reason: '' },

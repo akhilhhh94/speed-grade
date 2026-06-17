@@ -2,6 +2,9 @@
 // NOTE: colour classes are written as complete literal strings so Tailwind's
 // scanner picks them up (dynamically-built class names would be purged).
 
+import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
+
 export const BAND_COLORS = {
   emerald: { dot: 'bg-emerald-500', pill: 'bg-emerald-50 text-emerald-700 ring-emerald-200', bar: 'bg-emerald-500' },
   green: { dot: 'bg-green-500', pill: 'bg-green-50 text-green-700 ring-green-200', bar: 'bg-green-500' },
@@ -144,6 +147,56 @@ export function Select({ className = '', children, ...props }) {
     <select className={`${inputBase} ${className}`} {...props}>
       {children}
     </select>
+  )
+}
+
+// Lightweight modal/dialog. Backdrop click and Esc close it; the panel scrolls
+// when its content is tall. Rendered through a portal into <body> so it is never
+// clipped by an ancestor's transform/filter/backdrop-filter containing block
+// (e.g. the top bar's backdrop-blur).
+export function Modal({ open, onClose, title, children, maxWidth = 'max-w-5xl' }) {
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose?.()
+    }
+    window.addEventListener('keydown', onKey)
+    // Lock background scroll while the dialog is open.
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [open, onClose])
+
+  if (!open) return null
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 backdrop-blur-sm"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className={`my-8 w-full ${maxWidth} rounded-2xl bg-white shadow-xl ring-1 ring-slate-200`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="px-6 py-5">{children}</div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 

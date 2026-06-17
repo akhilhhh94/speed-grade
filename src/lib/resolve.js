@@ -27,9 +27,13 @@ export function defaultRulesFor(rubric, bands) {
   }
 }
 
-/** An empty Grade Profile. A non-match always falls back to the weighted-average band. */
+/**
+ * An empty Grade Profile. `weightedFallback` (default on) controls what happens
+ * when no rule matches: on ⇒ the weighted-average band is used; off ⇒ no grade is
+ * chosen automatically and the evaluator must set it manually.
+ */
 export function defaultProfile() {
-  return { overrides: [] }
+  return { overrides: [], weightedFallback: true }
 }
 
 /**
@@ -46,7 +50,7 @@ function bindProfile(profile, bands) {
     ...o,
     targetBandId: bandIds.has(o.targetBandId) ? o.targetBandId : desc[Math.min(i, last)]?.id ?? null,
   }))
-  return { overrides }
+  return { overrides, weightedFallback: profile?.weightedFallback ?? true }
 }
 
 /**
@@ -95,7 +99,7 @@ function sanitizeProfile(profile, bands, levelKeys, bandIds) {
       })),
   }))
 
-  return { overrides }
+  return { overrides, weightedFallback: profile?.weightedFallback ?? true }
 }
 
 /** Coerce `rules` into a valid shape for the given rubric + bands. */
@@ -127,6 +131,10 @@ export function sanitizeRules(rules, rubric, bands) {
 /**
  * Resolve an assignment into its full grading configuration.
  * Returns the engine-ready fields plus the `scale`/`rubric` objects for the UI.
+ *
+ * Grade rules are a single source of truth: they live on the RUBRIC (global) and
+ * are bound here to the assignment's chosen scale bands. The assignment itself no
+ * longer carries its own rules.
  */
 export function resolveAssignmentConfig(state, assignment) {
   const scale = state.gradeScales.find((s) => s.id === assignment?.gradeScaleId) ?? null
@@ -136,7 +144,7 @@ export function resolveAssignmentConfig(state, assignment) {
     scale,
     rubric,
     bands,
-    rules: sanitizeRules(assignment?.rules, rubric, bands),
+    rules: sanitizeRules(rubric?.rules, rubric, bands),
     passFailEnabled: !!scale?.passFailEnabled,
   }
 }

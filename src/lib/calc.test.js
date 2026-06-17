@@ -306,3 +306,45 @@ describe('computeResult — grade profile mode', () => {
     expect(runV(['d', 'd', 'd', 'd', 'd', 'd'], { rules }).finalBand.id).toBe('D')
   })
 })
+
+describe('computeResult — grade profile weighted-average fallback toggle', () => {
+  // Same rules as profileRules but with the weighted-average fallback turned OFF.
+  const noFallbackRules = {
+    ...profileRules,
+    profile: { ...profileRules.profile, weightedFallback: false },
+  }
+
+  it('still uses the weighted band when no rule matches and fallback is on (default)', () => {
+    const r = runV(['p', 'p', 'p', 'p', 'p', 'f']) // no rule matches → 45.8% → Fail
+    expect(r.finalBand.id).toBe('X')
+    expect(r.noGrade).toBe(false)
+    expect(r.profile.fallbackUsed).toBe(true)
+  })
+
+  it('leaves the grade unset when no rule matches and fallback is off', () => {
+    const r = runV(['p', 'p', 'p', 'p', 'p', 'f'], { rules: noFallbackRules })
+    expect(r.finalBand).toBe(null)
+    expect(r.noGrade).toBe(true)
+    expect(r.isPass).toBe(false)
+    expect(r.profile.fallbackUsed).toBe(false)
+    expect(r.profile.noGrade).toBe(true)
+    // No band-based fail reason is fabricated when there is no band.
+    expect(r.failReasons).toEqual([])
+  })
+
+  it('still awards a matching rule even when fallback is off', () => {
+    const r = runV(['d', 'd', 'd', 'd', 'd', 'd'], { rules: noFallbackRules })
+    expect(r.finalBand.id).toBe('D')
+    expect(r.noGrade).toBe(false)
+  })
+
+  it('a teacher override resolves the unset grade', () => {
+    const r = runV(['p', 'p', 'p', 'p', 'p', 'f'], {
+      rules: noFallbackRules,
+      override: { bandId: 'P', reason: 'manual call' },
+    })
+    expect(r.finalBand.id).toBe('P')
+    expect(r.noGrade).toBe(false)
+    expect(r.override.active).toBe(true)
+  })
+})

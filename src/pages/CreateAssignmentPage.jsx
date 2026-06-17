@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react'
-import { useStore } from '../state/store.jsx'
-import { resolveAssignmentConfig, seedRules } from '../lib/resolve.js'
-import { Card, Button, Field, TextInput, Textarea, Badge, EmptyState } from '../components/ui.jsx'
+import { useStore, newRubric, newGradeScale } from '../state/store.jsx'
+import { resolveAssignmentConfig } from '../lib/resolve.js'
+import { Card, Button, Field, TextInput, Textarea, Badge } from '../components/ui.jsx'
 import WizardStepper from '../components/WizardStepper.jsx'
-import RulesConfig from '../components/editors/RulesConfig.jsx'
+import RubricEditor from '../components/editors/RubricEditor.jsx'
+import GradeScaleEditor from '../components/editors/GradeScaleEditor.jsx'
 import Markdown from '../components/Markdown.jsx'
 
 const STEPS = [
   { label: 'Details', hint: 'Title & content' },
-  { label: 'Grade scale', hint: 'Banding' },
-  { label: 'Rubric', hint: 'Criteria' },
+  { label: 'Rubric & grade scale', hint: 'Criteria & banding' },
   { label: 'Outcomes', hint: 'What it assesses' },
-  { label: 'Deadline & rules', hint: 'Due date' },
+  { label: 'Deadline', hint: 'Due date' },
   { label: 'Review', hint: 'Publish' },
 ]
 
@@ -33,7 +33,8 @@ function rulesSummary(passFailEnabled, rules, rubric, bands) {
   if (!passFailEnabled) return 'Simple grading — no pass/fail rules.'
   if (rules.mode === 'profile') {
     const n = rules.profile?.overrides?.length ?? 0
-    return `Grade profile · ${n} rule${n === 1 ? '' : 's'}`
+    const fb = rules.profile?.weightedFallback === false ? ' · manual grade if none match' : ''
+    return `Grade profile · ${n} rule${n === 1 ? '' : 's'}${fb}`
   }
   const passLabel = rubric?.levels.find((l) => l.key === rules.passLevelKey)?.label ?? '—'
   const parts = [`Pass at ≥ ${passLabel}`]
@@ -50,6 +51,9 @@ export default function CreateAssignmentPage() {
   const { draft } = state
   const [contentPreview, setContentPreview] = useState(false)
   const [outcomesPreview, setOutcomesPreview] = useState(false)
+  // Inline create/edit of a brand-new global rubric / grade scale within the wizard.
+  const [editingRubricId, setEditingRubricId] = useState(null)
+  const [editingScaleId, setEditingScaleId] = useState(null)
 
   useEffect(() => {
     if (!draft) navigate('assignments')
@@ -63,18 +67,42 @@ export default function CreateAssignmentPage() {
   const config = resolveAssignmentConfig(state, draft)
   const isEdit = state.route.name === 'assignment-edit'
 
-  // Choosing a rubric seeds the assignment's outcomes + rule choices from it.
+  // Choosing a rubric seeds the assignment's outcomes from it, and adopts the
+  // rubric's associated grade scale when none has been picked yet (the assignment
+  // may still override the scale — assignment priority). Grade rules are NOT copied
+  // to the assignment: they live on the rubric (single source of truth) and are
+  // resolved at grade time.
   const chooseRubric = (rubric) => {
     set('rubricId', rubric.id)
     set('outcomes', rubric.outcomes ?? '')
-    const scale = state.gradeScales.find((s) => s.id === draft.gradeScaleId)
-    set('rules', seedRules(rubric.rules, scale?.bands ?? []))
+    const scaleId = draft.gradeScaleId || rubric.gradeScaleId || null
+    if (scaleId !== draft.gradeScaleId) set('gradeScaleId', scaleId)
   }
+
+  const chooseScale = (id) => set('gradeScaleId', id)
+
+  // Create-new buttons add a real, global library item (no project-local config),
+  // select it, and drop the user straight into its full editor.
+  const createRubric = () => {
+    const r = newRubric()
+    dispatch({ type: 'ADD_RUBRIC', item: r })
+    chooseRubric(r)
+    setEditingRubricId(r.id)
+  }
+  const createScale = () => {
+    const s = newGradeScale()
+    dispatch({ type: 'ADD_GRADE_SCALE', item: s })
+    set('gradeScaleId', s.id)
+    setEditingScaleId(s.id)
+  }
+
+  const currentRubric = state.rubrics.find((r) => r.id === draft.rubricId) ?? null
+  const editingRubric = editingRubricId ? state.rubrics.find((r) => r.id === editingRubricId) ?? null : null
+  const editingScale = editingScaleId ? state.gradeScales.find((s) => s.id === editingScaleId) ?? null : null
 
   const canContinue = [
     draft.title.trim() !== '',
-    !!draft.gradeScaleId,
-    !!draft.rubricId,
+    !!draft.rubricId && !!draft.gradeScaleId,
     true,
     true,
     true,
@@ -138,61 +166,107 @@ export default function CreateAssignmentPage() {
         </Card>
       )}
 
-      {/* STEP 1 — Grade scale */}
+      {/* STEP 1 — Rubric & grade scale (choose existing or create a new global one) */}
       {step === 1 && (
-        <Card title="Choose a grade scale" subtitle="How the final percentage maps to a grade.">
-          <div className="space-y-3">
-            {state.gradeScales.map((s) => {
-              const ordered = [...s.bands].sort((a, b) => b.min - a.min)
-              return (
-                <SelectCard key={s.id} selected={draft.gradeScaleId === s.id} onClick={() => set('gradeScaleId', s.id)}>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="font-semibold text-slate-800">{s.name}</span>
-                    <span className="text-slate-300">·</span>
-                    <Badge tone={s.passFailEnabled ? 'indigo' : 'slate'}>{s.passFailEnabled ? 'Pass / Fail' : 'Simple'}</Badge>
-                    <span className="text-slate-300">·</span>
-                    <span className="text-xs text-slate-400">{s.bands.length} bands</span>
-                  </div>
-                  <div className="mt-2.5 flex flex-wrap gap-1.5">
-                    {ordered.map((b) => (
-                      <span
-                        key={b.id}
-                        className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
-                        title={`${b.min}–${b.max}%${b.isPass ? ' · pass' : ' · fail'}`}
-                      >
-                        {b.label}
-                        <span className="ml-1 text-slate-400">{b.min}–{b.max}%</span>
-                      </span>
-                    ))}
-                  </div>
-                </SelectCard>
-              )
-            })}
-          </div>
-        </Card>
-      )}
-
-      {/* STEP 2 — Rubric */}
-      {step === 2 && (
-        <Card title="Choose a rubric" subtitle="The criteria the submission is scored against. Its outcomes & rules become the starting point for this assignment.">
-          <div className="space-y-3">
-            {state.rubrics.map((r) => (
-              <SelectCard key={r.id} selected={draft.rubricId === r.id} onClick={() => chooseRubric(r)}>
-                <p className="font-semibold text-slate-800">{r.name}</p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {r.criteria.map((c) => (
-                    <Badge key={c.id} tone="slate">{c.name}</Badge>
-                  ))}
+        <div className="space-y-6">
+          {/* Rubric — listed first because it can suggest a grade scale */}
+          {editingRubricId && editingRubric ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Editing rubric</h2>
+                  <p className="text-sm text-slate-500">Saved to your global rubric library and selected for this assignment.</p>
                 </div>
-                <p className="mt-1.5 text-xs text-slate-400">{r.criteria.length} criteria · {r.levels.length} levels</p>
-              </SelectCard>
-            ))}
-          </div>
-        </Card>
+                <Button onClick={() => setEditingRubricId(null)}>Done editing rubric</Button>
+              </div>
+              <RubricEditor
+                value={editingRubric}
+                gradeScales={state.gradeScales}
+                onChange={(next) => dispatch({ type: 'UPDATE_RUBRIC', id: next.id, value: next })}
+              />
+            </div>
+          ) : (
+            <Card title="Choose a rubric" subtitle="The criteria the submission is scored against. Its outcomes & rules become the starting point for this assignment.">
+              <div className="space-y-3">
+                {state.rubrics.map((r) => (
+                  <SelectCard key={r.id} selected={draft.rubricId === r.id} onClick={() => chooseRubric(r)}>
+                    <p className="font-semibold text-slate-800">{r.name}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {r.criteria.map((c) => (
+                        <Badge key={c.id} tone="slate">{c.name}</Badge>
+                      ))}
+                    </div>
+                    <p className="mt-1.5 text-xs text-slate-400">{r.criteria.length} criteria · {r.levels.length} levels</p>
+                  </SelectCard>
+                ))}
+              </div>
+              <div className="mt-4">
+                <Button variant="subtle" onClick={createRubric}>
+                  + New rubric (saved to your library)
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {/* Grade scale */}
+          {editingScaleId && editingScale ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Editing grade scale</h2>
+                  <p className="text-sm text-slate-500">Saved to your global grade-scale library and selected for this assignment.</p>
+                </div>
+                <Button onClick={() => setEditingScaleId(null)}>Done editing scale</Button>
+              </div>
+              <GradeScaleEditor
+                value={editingScale}
+                onChange={(next) => dispatch({ type: 'UPDATE_GRADE_SCALE', id: next.id, value: next })}
+              />
+            </div>
+          ) : (
+            <Card title="Choose a grade scale" subtitle="How the final percentage maps to a grade.">
+              <div className="space-y-3">
+                {state.gradeScales.map((s) => {
+                  const ordered = [...s.bands].sort((a, b) => b.min - a.min)
+                  const suggested = currentRubric?.gradeScaleId === s.id
+                  return (
+                    <SelectCard key={s.id} selected={draft.gradeScaleId === s.id} onClick={() => chooseScale(s.id)}>
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="font-semibold text-slate-800">{s.name}</span>
+                        <span className="text-slate-300">·</span>
+                        <Badge tone={s.passFailEnabled ? 'indigo' : 'slate'}>{s.passFailEnabled ? 'Pass / Fail' : 'Simple'}</Badge>
+                        <span className="text-slate-300">·</span>
+                        <span className="text-xs text-slate-400">{s.bands.length} bands</span>
+                        {suggested && <Badge tone="indigo">Suggested by rubric</Badge>}
+                      </div>
+                      <div className="mt-2.5 flex flex-wrap gap-1.5">
+                        {ordered.map((b) => (
+                          <span
+                            key={b.id}
+                            className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
+                            title={`${b.min}–${b.max}%${b.isPass ? ' · pass' : ' · fail'}`}
+                          >
+                            {b.label}
+                            <span className="ml-1 text-slate-400">{b.min}–{b.max}%</span>
+                          </span>
+                        ))}
+                      </div>
+                    </SelectCard>
+                  )
+                })}
+              </div>
+              <div className="mt-4">
+                <Button variant="subtle" onClick={createScale}>
+                  + New grade scale (saved to your library)
+                </Button>
+              </div>
+            </Card>
+          )}
+        </div>
       )}
 
-      {/* STEP 3 — Outcomes (rich text, customizable per assignment) */}
-      {step === 3 && (
+      {/* STEP 2 — Outcomes (rich text, customizable per assignment) */}
+      {step === 2 && (
         <Card title="Learning outcomes" subtitle="Inherited from the rubric — customize for this assignment. Supports tables & bullets.">
           <div className="mb-1 flex items-center justify-between">
             <span className="text-xs font-medium text-slate-500">Outcomes</span>
@@ -215,29 +289,19 @@ export default function CreateAssignmentPage() {
         </Card>
       )}
 
-      {/* STEP 4 — Deadline & rules */}
-      {step === 4 && (
-        <div className="space-y-6">
-          <Card title="Deadline" subtitle="When the assignment is due.">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Due date">
-                <TextInput type="date" value={draft.dueDate} onChange={(e) => set('dueDate', e.target.value)} />
-              </Field>
-            </div>
-          </Card>
-          <RulesConfig
-            value={config.rules}
-            rubric={config.rubric}
-            bands={config.bands}
-            passFailEnabled={config.passFailEnabled}
-            showBand
-            onChange={(next) => set('rules', next)}
-          />
-        </div>
+      {/* STEP 3 — Deadline */}
+      {step === 3 && (
+        <Card title="Deadline" subtitle="When the assignment is due. Grade rules come from the chosen rubric.">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Due date">
+              <TextInput type="date" value={draft.dueDate} onChange={(e) => set('dueDate', e.target.value)} />
+            </Field>
+          </div>
+        </Card>
       )}
 
-      {/* STEP 5 — Review */}
-      {step === 5 && (
+      {/* STEP 4 — Review */}
+      {step === 4 && (
         <Card title="Review & publish" subtitle="Check everything, then publish to make it available to learners.">
           <dl className="divide-y divide-slate-100 text-sm">
             <Row label="Title" value={draft.title || '—'} />
@@ -255,7 +319,7 @@ export default function CreateAssignmentPage() {
               }
             />
             <Row label="Rubric" value={config.rubric?.name ?? '—'} />
-            <Row label="Grading rules" value={rulesSummary(config.passFailEnabled, config.rules, config.rubric, config.bands)} />
+            <Row label="Grading rules (from rubric)" value={rulesSummary(config.passFailEnabled, config.rules, config.rubric, config.bands)} />
           </dl>
 
           <div className="mt-4">

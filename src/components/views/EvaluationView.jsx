@@ -17,6 +17,8 @@ export default function EvaluationView({
   onOverride,
   onSeeResult,
   onReset,
+  showFeedback = true,
+  showOverride = true,
 }) {
   const { bands, rubric, rules, passFailEnabled } = config
   const { levels, criteria } = rubric
@@ -41,11 +43,14 @@ export default function EvaluationView({
   const complete = evaluatedCount === criteria.length
   const overrideInvalid = !!override.bandId && !override.reason.trim()
   const result = complete ? computeResult({ bands, rubric, rules, evaluation, override, passFailEnabled }) : null
+  // A grade profile with the weighted-average fallback off can leave the grade
+  // unset when no rule matches — a manual override is then required to finish.
+  const needsManualGrade = !!result && !result.finalBand
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
-      {/* LEFT — student submission */}
-      <SubmissionPanel submission={submission} />
+    <div className={`grid gap-6 ${submission ? 'lg:grid-cols-[1fr_1.1fr]' : ''}`}>
+      {/* LEFT — student submission (omitted in the grade simulator, where there is none) */}
+      {submission && <SubmissionPanel submission={submission} />}
 
       {/* RIGHT — evaluation */}
       <div className="space-y-4">
@@ -74,9 +79,17 @@ export default function EvaluationView({
                 </div>
               </div>
               <div className="text-center">
-                {complete ? <BandPill band={result.finalBand} /> : <span className="text-xs text-slate-400">Provisional grade</span>}
+                {complete ? (
+                  result.finalBand ? (
+                    <BandPill band={result.finalBand} />
+                  ) : (
+                    <span className="text-xs font-medium text-amber-600">Grade not set</span>
+                  )
+                ) : (
+                  <span className="text-xs text-slate-400">Provisional grade</span>
+                )}
               </div>
-              <Button disabled={!complete || overrideInvalid} onClick={onSeeResult}>
+              <Button disabled={!complete || overrideInvalid || (needsManualGrade && showOverride)} onClick={onSeeResult}>
                 See result →
               </Button>
             </div>
@@ -156,18 +169,27 @@ export default function EvaluationView({
         })}
 
         {/* Teacher feedback */}
-        <Card title="Feedback for the student" subtitle="Optional. Shown to the learner on the result screen.">
-          <textarea
-            value={feedback}
-            onChange={(e) => onFeedback(e.target.value)}
-            rows={4}
-            placeholder="e.g. Strong, well-structured argument. Tighten your use of evidence in the third paragraph and double-check your citations."
-            className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm leading-relaxed text-slate-700"
-          />
-        </Card>
+        {showFeedback && (
+          <Card title="Feedback for the student" subtitle="Optional. Shown to the learner on the result screen.">
+            <textarea
+              value={feedback}
+              onChange={(e) => onFeedback(e.target.value)}
+              rows={4}
+              placeholder="e.g. Strong, well-structured argument. Tighten your use of evidence in the third paragraph and double-check your citations."
+              className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm leading-relaxed text-slate-700"
+            />
+          </Card>
+        )}
 
         {/* Teacher override */}
+        {showOverride && (
         <Card title="Teacher override" subtitle="Manually set the final grade. This supersedes all computed rules and is recorded with your reason.">
+          {needsManualGrade && (
+            <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              No grade rule matched and the weighted-average fallback is off, so no grade was set automatically. Choose a
+              final grade below and add a reason to complete the evaluation.
+            </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Override grade</label>
@@ -176,7 +198,7 @@ export default function EvaluationView({
                 onChange={(e) => setOverride({ bandId: e.target.value || null })}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               >
-                <option value="">— No override (use computed) —</option>
+                <option value="">{needsManualGrade ? '— Select a final grade —' : '— No override (use computed) —'}</option>
                 {bands.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.label}
@@ -207,6 +229,7 @@ export default function EvaluationView({
             </div>
           )}
         </Card>
+        )}
 
         {/* Collapsible full calculation */}
         <CalculationDetails result={result} />

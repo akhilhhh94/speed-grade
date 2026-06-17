@@ -31,6 +31,31 @@ export default function ResultView({ config, evaluation, feedback, override, onB
     )
   }
 
+  // A grade profile with the weighted-average fallback off can leave the grade
+  // unset (no rule matched, no manual override). Surface that explicitly rather
+  // than rendering an empty/failed result.
+  if (!result.finalBand) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-2xl bg-amber-50 p-6 ring-1 ring-amber-200">
+          <div className="flex items-center gap-2">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500 text-xl text-white">!</span>
+            <h2 className="text-2xl font-bold text-amber-900">Final grade not set</h2>
+          </div>
+          <p className="mt-2 text-sm text-amber-800">
+            No grade-profile rule matched and the weighted-average fallback is off, so no grade was assigned
+            automatically. Set the final grade manually (Teacher override) to complete the evaluation.
+          </p>
+          {onBack && (
+            <Button className="mt-4" onClick={onBack}>
+              ← Back to evaluation
+            </Button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const pf = result.passFailEnabled
   const pass = result.isPass
 

@@ -3,12 +3,13 @@ import { bandsTopToBottom, describeOverride } from '../../lib/calc.js'
 import { Button, Select, EmptyState } from '../ui.jsx'
 
 // Controlled editor for a Grade Profile:
-//   { overrides: [{ id, targetBandId, conditions:[ primary, floor? ] }] }
+//   { overrides: [{ id, targetBandId, conditions:[ primary, floor? ] }], weightedFallback }
 //
 // Each rule awards a grade (a band, picked from the scale). Its conditions are
 // kept simple: a PRIMARY requirement ("at least N criteria reach <level>") and an
-// optional FLOOR ("and no criterion is below <level>"). There is no configurable
-// fallback — when no rule matches, the weighted-average band is used.
+// optional FLOOR ("and no criterion is below <level>"). The `weightedFallback`
+// flag (default on) controls the no-match behaviour: on ⇒ the weighted-average
+// band is used; off ⇒ no grade is set and it must be chosen manually.
 //
 // The engine (lib/calc.js) supports arbitrary conditions; this editor only emits
 // these two shapes:
@@ -16,12 +17,14 @@ import { Button, Select, EmptyState } from '../ui.jsx'
 //   floor   → { quantifier:'atMost',  count:0, matcher:'below', levelKey }
 export default function ProfileRulesEditor({ profile, rubric, bands = [], onChange }) {
   const overrides = profile?.overrides ?? []
+  const weightedFallback = profile?.weightedFallback !== false // default on
   const levels = rubric?.levels ?? []
   const criteriaCount = (rubric?.criteria ?? []).length
   const bandsDesc = bandsTopToBottom(bands)
   const counts = Array.from({ length: Math.max(criteriaCount, 1) }, (_, i) => i + 1)
 
   const setOverrides = (next) => onChange({ ...profile, overrides: next })
+  const setWeightedFallback = (on) => onChange({ ...profile, weightedFallback: on })
   const updateRule = (id, patch) => setOverrides(overrides.map((o) => (o.id === id ? { ...o, ...patch } : o)))
   const removeRule = (id) => setOverrides(overrides.filter((o) => o.id !== id))
   const moveRule = (id, dir) => {
@@ -69,15 +72,44 @@ export default function ProfileRulesEditor({ profile, rubric, bands = [], onChan
     <div className="space-y-3">
       <p className="text-sm text-slate-500">
         Rules are checked top to bottom — the{' '}
-        <span className="font-medium text-slate-700">first rule whose conditions all hold</span> sets the grade. If none
-        match, the weighted-average grade is used.
+        <span className="font-medium text-slate-700">first rule whose conditions all hold</span> sets the grade.{' '}
+        {weightedFallback ? (
+          <>If none match, the weighted-average grade is used.</>
+        ) : (
+          <>
+            If none match, <span className="font-medium text-slate-700">no grade is set automatically</span> — the
+            evaluator must choose the final grade manually.
+          </>
+        )}
       </p>
+
+      {/* No-match behaviour — weighted-average fallback on/off */}
+      <label className="flex items-start gap-2.5 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        <input
+          type="checkbox"
+          checked={weightedFallback}
+          onChange={(e) => setWeightedFallback(e.target.checked)}
+          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600"
+        />
+        <span>
+          <span className="font-semibold text-slate-800">Use the weighted-average grade when no rule matches</span>
+          <span className="mt-0.5 block text-xs text-slate-400">
+            {weightedFallback
+              ? 'On: if no rule matches, the grade falls back to the band the weighted score maps to.'
+              : 'Off: if no rule matches, no grade is chosen — the evaluator must set the final grade manually to complete the evaluation.'}
+          </span>
+        </span>
+      </label>
 
       {overrides.length === 0 ? (
         <EmptyState
           icon="▦"
           title="No grade rules yet"
-          subtitle="Without rules the grade is simply the weighted-average band. Add a rule to award a grade based on how many criteria reach each level."
+          subtitle={
+            weightedFallback
+              ? 'Without rules the grade is simply the weighted-average band. Add a rule to award a grade based on how many criteria reach each level.'
+              : 'Without rules — and with the weighted-average fallback off — no grade is set automatically. Add a rule to award a grade based on how many criteria reach each level.'
+          }
           action={
             <Button variant="subtle" onClick={addRule}>
               + Add rule

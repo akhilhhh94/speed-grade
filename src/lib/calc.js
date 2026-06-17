@@ -64,9 +64,11 @@ const round = (n, d = 1) => {
 // A "grade profile" decides the final grade from how many criteria reach each
 // level (rather than from the weighted percentage). Authors define N ordered
 // override rules; the first whose count-based conditions ALL hold wins. If none
-// match, the grade is simply the weighted-average band (no configurable
-// fallback). These helpers are pure and shared by the engine, the editor (for
-// the live preview) and the tests — one source of truth for the phrasing.
+// match, behaviour depends on the profile's `weightedFallback` flag (default on):
+// on ⇒ the grade is the weighted-average band; off ⇒ no band is chosen
+// (finalBand is null) and a grade must be set manually. These helpers are pure
+// and shared by the engine, the editor (live preview) and the tests — one source
+// of truth for the phrasing.
 
 /** Bands ordered best → worst (highest `min` first). */
 export function bandsTopToBottom(bands) {
@@ -111,17 +113,31 @@ export function overrideMatches(perCriterion, levels, override) {
 
 /**
  * Run the whole profile: the first matching override wins (its target band).
- * If none match, the grade is simply the weighted-average band — there is no
- * configurable fallback. Returns the chosen band plus a per-rule trace so the
- * UI can explain the decision.
+ * If none match, the configurable `weightedFallback` flag (default on) decides:
+ * on ⇒ fall back to the weighted-average band; off ⇒ return a null band (no
+ * auto-selection — a grade must be set manually). Returns the chosen band plus a
+ * per-rule trace so the UI can explain the decision.
  */
 export function evaluateProfile({ perCriterion, levels, bands, profile, computedBand }) {
   const overrides = profile?.overrides ?? []
+  const useFallback = profile?.weightedFallback !== false // default on
   const evaluated = overrides.map((o) => ({ override: o, ...overrideMatches(perCriterion, levels, o) }))
   const winnerIdx = evaluated.findIndex((e) => e.matched)
 
-  const finalBand = winnerIdx >= 0 ? bandById(bands, evaluated[winnerIdx].override.targetBandId) ?? computedBand : computedBand
-  return { active: true, finalBand, winnerIdx, fallbackUsed: winnerIdx < 0, evaluated }
+  const noMatch = winnerIdx < 0
+  const finalBand = noMatch
+    ? useFallback
+      ? computedBand
+      : null
+    : bandById(bands, evaluated[winnerIdx].override.targetBandId) ?? computedBand
+  return {
+    active: true,
+    finalBand,
+    winnerIdx,
+    fallbackUsed: noMatch && useFallback,
+    noGrade: noMatch && !useFallback,
+    evaluated,
+  }
 }
 
 /** Plain-English sentence for a condition — shared by the editor preview and the engine steps. */
@@ -295,7 +311,8 @@ export function computeResult({ bands, rubric, rules, evaluation, override, pass
 
   // 4b. Grade Profile (count-based override rules) --------------------------
   // First matching rule (top → bottom) sets the final grade; otherwise the
-  // fallback applies. Every decision is recorded so the student sees, in plain
+  // weighted-average fallback applies when enabled, or no grade is set (left for
+  // a manual override). Every decision is recorded so the student sees, in plain
   // language, which rule won and why the higher ones (if any) did not.
   let profileOut = { active: false }
   if (profileMode) {
@@ -331,11 +348,18 @@ export function computeResult({ bands, rubric, rules, evaluation, override, pass
         title: `Grade profile: “${gradeOf(w.override)}” awarded`,
         detail: `Conditions met — ${met}. Final grade set to “${pe.finalBand.label}”.`,
       })
-    } else {
+    } else if (pe.fallbackUsed) {
       steps.push({
         kind: 'info',
         title: 'Grade profile: no rule matched',
         detail: `No grade-profile rule matched, so the weighted-average band “${pe.finalBand.label}” stands.`,
+      })
+    } else {
+      steps.push({
+        kind: 'fail',
+        title: 'Grade profile: no rule matched — manual grade required',
+        detail:
+          'No grade-profile rule matched and the weighted-average fallback is off, so no grade was set automatically. Set the final grade manually using the teacher override.',
       })
     }
   }
@@ -356,9 +380,12 @@ export function computeResult({ bands, rubric, rules, evaluation, override, pass
     }
   }
 
-  const isPass = !!finalBand.isPass
-  // Only surface a fail reason when Pass/Fail grading is on.
-  if (rulesOn && !isPass && failReasons.length === 0) {
+  // A grade profile with the weighted-average fallback off can leave the grade
+  // unset (finalBand null) when no rule matches and there is no teacher override.
+  const noGrade = !finalBand
+  const isPass = !!finalBand?.isPass
+  // Only surface a fail reason when Pass/Fail grading is on and a band exists.
+  if (rulesOn && finalBand && !isPass && failReasons.length === 0) {
     failReasons.push(`The overall score of ${rawPercent}% falls in the failing band “${finalBand.label}”.`)
   }
 
@@ -376,6 +403,7 @@ export function computeResult({ bands, rubric, rules, evaluation, override, pass
     override: overrideOut,
     supersededByGate,
     finalBand,
+    noGrade,
     isPass,
     steps,
     failReasons,

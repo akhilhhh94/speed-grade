@@ -73,7 +73,8 @@ export const newAssignmentDraft = () => ({
   gradeScaleId: null,
   rubricId: null,
   outcomes: '', // rich text, seeded from the chosen rubric and editable here
-  rules: null,
+  // No per-assignment grade rules: they live on the rubric (single source of
+  // truth) and are resolved against the chosen scale at grade time.
   dueDate: '',
   points: 100,
   status: 'draft',

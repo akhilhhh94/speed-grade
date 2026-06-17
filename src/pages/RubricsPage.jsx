@@ -1,6 +1,7 @@
 import { useStore, newRubric } from '../state/store.jsx'
 import { Card, Button, Badge, EmptyState } from '../components/ui.jsx'
 import { IconPlus } from '../components/layout/Icons.jsx'
+import SimulatorLauncher from '../components/SimulatorLauncher.jsx'
 
 export default function RubricsPage() {
   const { state, dispatch, navigate } = useStore()
@@ -32,6 +33,8 @@ export default function RubricsPage() {
         <div className="space-y-3">
           {rubrics.map((r) => {
             const used = usageCount(r.id)
+            // The simulator only works once a rubric is paired with a (still-existing) grade scale.
+            const simScale = r.gradeScaleId && state.gradeScales.find((s) => s.id === r.gradeScaleId)
             return (
               <Card key={r.id} className="transition hover:ring-indigo-200">
                 <div className="flex items-center justify-between gap-4">
@@ -48,6 +51,7 @@ export default function RubricsPage() {
                     </p>
                   </button>
                   <div className="flex items-center gap-2">
+                    {simScale && <SimulatorLauncher rubricId={r.id} scaleId={r.gradeScaleId} label="Simulate" />}
                     <Button variant="ghost" onClick={() => navigate('rubric', { id: r.id })}>
                       Edit
                     </Button>

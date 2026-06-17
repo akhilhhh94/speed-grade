@@ -95,7 +95,9 @@ export default function CalculationDetails({ result, open = false }) {
         <div className="flex items-center justify-between rounded-lg bg-indigo-50 px-4 py-3 text-sm">
           <span className="font-medium text-indigo-800">Final grade</span>
           <span className="font-bold text-indigo-900">
-            {result.finalBand.label} · {result.isPass ? 'Pass' : 'Resubmission'}
+            {result.finalBand
+              ? `${result.finalBand.label} · ${result.isPass ? 'Pass' : 'Resubmission'}`
+              : 'Not set — manual grade required'}
           </span>
         </div>
       </div>
